@@ -1,5 +1,28 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { Camera, CheckCircle2, Circle, MapPin, Calendar, DollarSign, AlertCircle, FileText, User, Lock, Download, Image as ImageIcon, BarChart3, Users, LogOut, ChevronDown, ChevronUp, X, ChevronLeft, ChevronRight, CalendarDays, List, HelpCircle, Edit2, Trash2, Save } from 'lucide-react';
+
+// === Firebase 데이터베이스 연동 ===
+import { initializeApp } from 'firebase/app';
+import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from 'firebase/auth';
+import { getFirestore, collection, onSnapshot, doc, setDoc, deleteDoc } from 'firebase/firestore';
+
+// =====================================================================
+// 💡 사장님! Netlify 실제 배포를 위해 아래 설정값을 사장님의 Firebase 정보로 채워주세요!
+// (Canvas 테스트 환경에서는 자동 적용됩니다.)
+// =====================================================================
+const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__firebase_config) : {
+  apiKey: "AIzaSyAjjEtx4Rkf7yGRaymWf9_tmUzf-yQ16Qg",
+  authDomain: "heart-pop.firebaseapp.com",
+  projectId: "heart-pop",
+  storageBucket: "heart-pop.firebasestorage.app",
+  messagingSenderId: "711616458234",
+  appId: "1:711616458234:web:bb3de45e0be2f6102c0843"
+};
+
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = getFirestore(app);
+const appId = typeof __app_id !== 'undefined' ? __app_id : 'heart-pop-app-prod';
 
 // --- 물품 이름 매핑 ---
 const supplyNames = {
@@ -10,7 +33,6 @@ const supplyNames = {
   maskShort: '마스크'
 };
 
-// --- 마감 리스트 이름 매핑 ---
 const checklistNames = {
   readyCash: '영업준비금 10만원 확인',
   machineClean: '기기 청소',
@@ -23,55 +45,19 @@ const checklistNames = {
   submitLog: '매출일지 사무실 제출'
 };
 
-// --- MVP용 초기 가상 데이터 (테스트용) ---
-const initialReports = [
-  {
-    id: 1,
-    timestamp: '2026-05-07T21:30:00',
-    date: '2026-05-07',
-    worker: '황진웅',
-    location: '상행선',
-    sales: { cash: 150000, card: 300000 },
-    totalSales: 450000,
-    supplies: { breadTieShort: false, plasticBagShort: true, gloveShort: false, earmuffShort: false, maskShort: false, extra: '' },
-    suppliesStock: { breadTieShort: '', plasticBagShort: '20', gloveShort: '', earmuffShort: '', maskShort: '', extra: '' },
-    checklist: { readyCash: true, machineClean: true, acrylicClean: true, hideStock: true, receiptPaper: false, hideKey: true, changeEnough: true, posClose: true, submitLog: false },
-    waiting: { hadWaiting: true, lastNumber: '42', missedTeams: '3' },
-    inventory: { stockCount: '15', usedRice: '10', leftRice: '5', loss: '0.1' },
-    notes: '바빠서 영수증 용지 채우는걸 깜빡했습니다.',
-    photos: { riceBin: null, pot: null, desk: null, report: null, key: null }
-  },
-  {
-    id: 2,
-    timestamp: '2026-05-08T22:00:00',
-    date: '2026-05-08',
-    worker: '정윤이',
-    location: '하행선',
-    sales: { cash: 200000, card: 460000 },
-    totalSales: 660000,
-    supplies: { breadTieShort: false, plasticBagShort: false, gloveShort: false, earmuffShort: false, maskShort: false, extra: '' },
-    suppliesStock: { breadTieShort: '', plasticBagShort: '', gloveShort: '', earmuffShort: '', maskShort: '', extra: '' },
-    checklist: { readyCash: true, machineClean: true, acrylicClean: true, hideStock: true, receiptPaper: true, hideKey: true, changeEnough: true, posClose: true, submitLog: true },
-    waiting: { hadWaiting: false, lastNumber: '', missedTeams: '' },
-    inventory: { stockCount: '42', usedRice: '23', leftRice: '20', loss: '0.3' },
-    notes: '',
-    photos: { riceBin: null, pot: null, desk: null, report: null, key: null }
-  }
-];
-
 export default function App() {
+  const [user, setUser] = useState(null);
+  const [reports, setReports] = useState([]);
+  
   const [view, setView] = useState('form'); 
   const [adminPwd, setAdminPwd] = useState('');
-  const [reports, setReports] = useState(initialReports);
   
-  // 관리자 대시보드 상태
   const [filterType, setFilterType] = useState('ALL'); 
   const [filterValue, setFilterValue] = useState('');
   const [expandedReportId, setExpandedReportId] = useState(null);
   const [adminViewMode, setAdminViewMode] = useState('list'); 
   const [calendarDate, setCalendarDate] = useState(new Date()); 
 
-  // 관리자 모드용 상태 (수정, 삭제)
   const [editReportId, setEditReportId] = useState(null);
   const [editData, setEditData] = useState(null);
   const [deleteConfirmId, setDeleteConfirmId] = useState(null);
@@ -93,6 +79,45 @@ export default function App() {
     notes: '',
     waiting: { hadWaiting: null, lastNumber: '', missedTeams: '' }
   });
+
+  // --- DB 연동 및 로그인 처리 (컴포넌트 로드 시 1회 실행) ---
+  useEffect(() => {
+    const initAuth = async () => {
+      try {
+        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
+          await signInWithCustomToken(auth, __initial_auth_token);
+        } else {
+          await signInAnonymously(auth);
+        }
+      } catch (error) {
+        console.error("인증 에러:", error);
+      }
+    };
+    initAuth();
+    const unsubscribe = onAuthStateChanged(auth, setUser);
+    return () => unsubscribe();
+  }, []);
+
+  // --- 실시간 데이터 불러오기 (로그인 후 실행) ---
+  useEffect(() => {
+    if (!user) return;
+    
+    // DB에서 데이터 실시간 구독
+    const reportsRef = collection(db, 'artifacts', appId, 'public', 'data', 'reports');
+    const unsubscribe = onSnapshot(reportsRef, (snapshot) => {
+      const fetchedReports = [];
+      snapshot.forEach((doc) => {
+        fetchedReports.push({ id: doc.id, ...doc.data() });
+      });
+      // 최신순 정렬
+      fetchedReports.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+      setReports(fetchedReports);
+    }, (error) => {
+      console.error("데이터 동기화 오류:", error);
+    });
+
+    return () => unsubscribe();
+  }, [user]);
 
   const handleChecklist = (key) => {
     setFormData((prev) => ({
@@ -122,7 +147,7 @@ export default function App() {
     }
   };
 
-  const submitReport = () => {
+  const submitReport = async () => {
     if (formData.sales.cash === '' || formData.sales.card === '') {
       setAlertMessage("앗! 미입력 항목이 있습니다.\n현금 매출과 카드 매출을 모두 입력해주세요.\n(매출이 없는 항목은 '0'을 입력하세요.)");
       return;
@@ -131,11 +156,15 @@ export default function App() {
       setAlertMessage("앗! 미입력 항목이 있습니다.\n'대기 손님 파악' 질문에 '예' 또는 '아니오'를 반드시 선택해주세요.");
       return;
     }
+    if (!user) {
+      setAlertMessage("데이터베이스 연결 중입니다. 잠시 후 다시 시도해주세요.");
+      return;
+    }
 
     const totalSales = (Number(formData.sales.cash) || 0) + (Number(formData.sales.card) || 0);
+    const newReportId = Date.now().toString();
     
     const newReport = {
-      id: Date.now(),
       timestamp: new Date().toISOString(),
       date: formData.date,
       worker: formData.worker === '직접입력' ? formData.customWorker : formData.worker,
@@ -151,8 +180,15 @@ export default function App() {
       photos: { ...formData.photos }
     };
     
-    setReports([newReport, ...reports]);
-    setShowSubmitModal(true); 
+    try {
+      // 데이터베이스에 저장
+      const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'reports', newReportId);
+      await setDoc(docRef, newReport);
+      setShowSubmitModal(true); 
+    } catch (error) {
+      setAlertMessage("제출 중 오류가 발생했습니다. 다시 시도해주세요.");
+      console.error(error);
+    }
   };
 
   const closeAndResetForm = () => {
@@ -170,25 +206,37 @@ export default function App() {
     }));
   };
 
-  // 관리자 수정/삭제 기능
   const startEditReport = (report) => {
     setEditReportId(report.id);
-    setEditData(JSON.parse(JSON.stringify(report))); // 깊은 복사
+    setEditData(JSON.parse(JSON.stringify(report))); 
   };
 
-  const saveEditReport = () => {
+  const saveEditReport = async () => {
+    if (!user) return;
     const totalSales = (Number(editData.sales.cash) || 0) + (Number(editData.sales.card) || 0);
     const updatedReport = { ...editData, totalSales };
+    delete updatedReport.id; // DB 저장 시 id는 문서 키로 사용되므로 내용물에서 제외
     
-    setReports(reports.map(r => r.id === editData.id ? updatedReport : r));
-    setEditReportId(null);
-    setEditData(null);
+    try {
+      const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'reports', editData.id.toString());
+      await setDoc(docRef, updatedReport);
+      setEditReportId(null);
+      setEditData(null);
+    } catch (error) {
+      alert("수정 실패: " + error.message);
+    }
   };
 
-  const executeDelete = () => {
-    setReports(reports.filter(r => r.id !== deleteConfirmId));
-    setDeleteConfirmId(null);
-    setExpandedReportId(null);
+  const executeDelete = async () => {
+    if (!user || !deleteConfirmId) return;
+    try {
+      const docRef = doc(db, 'artifacts', appId, 'public', 'data', 'reports', deleteConfirmId.toString());
+      await deleteDoc(docRef);
+      setDeleteConfirmId(null);
+      setExpandedReportId(null);
+    } catch (error) {
+      alert("삭제 실패: " + error.message);
+    }
   };
 
   const handleAdminLogin = (e) => {
@@ -276,7 +324,6 @@ export default function App() {
     }
     return days;
   };
-
 
   if (view === 'login') {
     return (
