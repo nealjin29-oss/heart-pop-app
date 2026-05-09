@@ -22,7 +22,7 @@ const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getFirestore(app);
 
-// 💡 필수 수정: appId 내의 슬래시를 제거하여 경로 오류 방지 (Firestore 규칙과 매칭)
+// 💡 appId 내의 슬래시를 언더바로 치환하여 Firebase 경로(5 segments) 준수
 const rawAppId = typeof __app_id !== 'undefined' ? __app_id : 'heart-pop-app-prod';
 const appId = rawAppId.replace(/\//g, '_');
 
@@ -96,7 +96,7 @@ export default function App() {
     waiting: { hadWaiting: null, lastNumber: '', missedTeams: '' }
   });
 
-  // --- 1. 인증 처리 (Rule 3 준수) ---
+  // --- 1. 인증 처리 (반드시 익명 로그인이 활성화되어 있어야 함) ---
   useEffect(() => {
     const initAuth = async () => {
       try {
@@ -107,6 +107,7 @@ export default function App() {
         }
       } catch (err) {
         console.error("인증 에러:", err);
+        setAlertMessage("서버 연결에 실패했습니다. Firebase 콘솔에서 '익명 로그인'이 켜져 있는지 확인해 주세요.");
       }
     };
     initAuth();
@@ -116,11 +117,10 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
-  // --- 2. 실시간 데이터 로드 (인증 완료 후 실행) ---
+  // --- 2. 실시간 데이터 로드 (인증된 사용자만 접근 가능) ---
   useEffect(() => {
-    if (!user) return; // 인증되지 않았으면 실행하지 않음 (권한 에러 방지)
+    if (!user) return;
     
-    // 경로: /artifacts/{appId}/public/data/reports (5 segments)
     const reportsRef = collection(db, 'artifacts', appId, 'public', 'data', 'reports');
     const q = query(reportsRef);
     
@@ -134,7 +134,7 @@ export default function App() {
         setReports(fetched);
       }, 
       (error) => {
-        console.error("데이터 동기화 에러 (Firestore 규칙 확인 필요):", error);
+        console.error("데이터 동기화 에러 (권한 부족):", error);
       }
     );
 
@@ -207,7 +207,10 @@ export default function App() {
       setAlertMessage("'대기 손님 파악' 질문을 완료해 주세요.");
       return;
     }
-    if (!user) return;
+    if (!user) {
+        setAlertMessage("서버와 연결 중입니다. 잠시만 기다려 주세요.");
+        return;
+    }
 
     setIsSubmitting(true);
     const total = (Number(formData.sales.cash) || 0) + (Number(formData.sales.card) || 0);
@@ -234,7 +237,7 @@ export default function App() {
       await setDoc(docRef, payload);
       setShowSubmitModal(true); 
     } catch (error) {
-      setAlertMessage("제출 실패: " + error.message);
+      setAlertMessage("제출 실패: " + error.message + "\n\n(Firebase 콘솔에서 '보안 규칙'과 '익명 로그인' 설정을 확인해 주세요.)");
     } finally {
       setIsSubmitting(false);
     }
@@ -328,6 +331,7 @@ export default function App() {
     return days;
   };
 
+  // 현재 선택된 위치와 날짜에 보고가 완료되었는지 확인
   const isCurrentSubmitted = useMemo(() => {
     return reports.some(r => r.date === formData.date && r.location === formData.location);
   }, [reports, formData.date, formData.location]);
@@ -466,14 +470,14 @@ export default function App() {
   return (
     <div className="max-w-md mx-auto bg-white min-h-screen pb-40">
       <header className="bg-white p-6 border-b-2 sticky top-0 z-20 flex justify-between items-center shadow-md">
-        <h1 className="font-black text-gray-900 text-xl flex items-center gap-2">
+        <h1 className="font-black text-gray-900 text-base sm:text-xl flex items-center gap-1 sm:gap-2">
           <span className="text-rose-600 cursor-pointer active:scale-75 transition-transform" onClick={()=>setView('login')}>❤️</span> 
-          하트뻥튀기 업무공유
+          하트뻥튀기 업무공유(처인휴게소)
         </h1>
         {isCurrentSubmitted && (
-          <div className="flex items-center gap-1.5 px-3 py-1 bg-green-100 rounded-full">
+          <div className="flex items-center gap-1 px-2 py-1 bg-green-100 rounded-full border border-green-200 animate-in fade-in zoom-in">
             <CheckCircle2 className="text-green-600" size={14}/>
-            <span className="text-[11px] font-black text-green-700">업무공유 완료</span>
+            <span className="text-[10px] sm:text-[11px] font-black text-green-700 whitespace-nowrap">제출 완료</span>
           </div>
         )}
       </header>
