@@ -13,6 +13,7 @@ const firebaseConfig = typeof __firebase_config !== 'undefined' ? JSON.parse(__f
   apiKey: "AIzaSyAjjEtx4Rkf7yGRaymWf9_tmUzf-yQ16Qg",
   authDomain: "heart-pop.firebaseapp.com",
   projectId: "heart-pop",
+  projectName: "heart-pop",
   storageBucket: "heart-pop.firebasestorage.app",
   messagingSenderId: "711616458234",
   appId: "1:711616458234:web:bb3de45e0be2f6102c0843"
@@ -155,7 +156,7 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
-  // --- 2. 💡 매뉴얼 체크리스트 초기화 로직 (오픈/마감 통합) ---
+  // --- 2. 매뉴얼 체크리스트 초기화 로직 (오픈/마감 통합) ---
   useEffect(() => {
     if (view !== 'manual_open') {
       setOpenChecks({});
@@ -176,14 +177,14 @@ export default function App() {
       snapshot.forEach((doc) => fetched.push({ id: doc.id, ...doc.data() }));
       fetched.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
       setReports(fetched);
-    });
+    }, (err) => console.error(err));
 
     const unsubNotices = onSnapshot(noticesRef, (snapshot) => {
       const fetched = [];
       snapshot.forEach((doc) => fetched.push({ id: doc.id, ...doc.data() }));
       fetched.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
       setNotices(fetched);
-    });
+    }, (err) => console.error(err));
 
     return () => { unsubReports(); unsubNotices(); };
   }, [user]);
@@ -253,6 +254,11 @@ export default function App() {
     } catch (e) { setAlertMessage("삭제 오류: " + e.message); }
   };
 
+  const startEdit = (report) => {
+    setEditReportId(report.id);
+    setEditData({ ...report });
+  };
+
   const saveEdit = async () => {
     if (!user || !editData) return;
     const total = (Number(editData.sales.cash) || 0) + (Number(editData.sales.card) || 0);
@@ -262,6 +268,8 @@ export default function App() {
     try {
       await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'reports', id), updated);
       setEditReportId(null);
+      setEditData(null);
+      setAlertMessage("리포트가 성공적으로 수정되었습니다.");
     } catch (e) { setAlertMessage("저장 오류: " + e.message); }
   };
 
@@ -294,9 +302,19 @@ export default function App() {
     return { total, sang, ha, attend };
   }, [reports, calendarDate]);
 
+  const filteredReports = useMemo(() => {
+    let result = [...reports];
+    if (filterType === 'LOCATION') {
+      result = reports.filter(r => r.location === filterValue);
+    } else if (filterType === 'WORKER') {
+      result = reports.filter(r => r.worker === filterValue);
+    }
+    return result;
+  }, [reports, filterType, filterValue]);
+
   const downloadCSV = () => {
     const headers = ['일자', '위치', '매니저', '총매출', '현금', '카드', '사용한쌀(kg)', '재고(개)', '부족물품', '특이사항'];
-    const rows = reports.map(r => [
+    const rows = filteredReports.map(r => [
       r.date, r.location, r.worker, r.totalSales, r.sales?.cash, r.sales?.card, 
       r.inventory?.usedRice, r.inventory?.stockCount, 
       Object.entries(r.supplies || {}).filter(([k,v]) => v === true).map(([k]) => supplyNames[k] || k).join('|'),
@@ -423,7 +441,13 @@ export default function App() {
               </div>
             ) : (
               <div className="space-y-6">
-                {reports.map(r => (
+                <div className="flex gap-2 overflow-x-auto pb-4 scrollbar-hide">
+                  <button onClick={()=>setFilterType('ALL')} className={`px-5 py-3 rounded-2xl border-4 font-black text-sm whitespace-nowrap transition-all ${filterType==='ALL' ? 'bg-gray-900 text-white border-gray-900 shadow-lg' : 'bg-white border-gray-100 text-gray-400'}`}>전체보기</button>
+                  {Object.keys(monthlyStats.attend).map(name => (
+                    <button key={name} onClick={()=>{setFilterType('WORKER');setFilterValue(name)}} className={`px-5 py-3 rounded-2xl border-4 font-black text-sm whitespace-nowrap transition-all ${filterType==='WORKER' && filterValue===name ? 'bg-gray-900 text-white border-gray-900 shadow-lg' : 'bg-white border-gray-100 text-gray-400'}`}>{name}</button>
+                  ))}
+                </div>
+                {filteredReports.map(r => (
                   <div key={r.id} className="p-8 rounded-[40px] border-4 shadow-2xl bg-white border-gray-900">
                     <div className="flex justify-between items-start mb-6">
                       <div>
@@ -434,13 +458,111 @@ export default function App() {
                     </div>
                     <div className="flex justify-between items-end border-t-4 border-gray-50 pt-6">
                        <span className="text-xs font-black text-gray-500 uppercase tracking-widest font-sans">Calculated Sales</span>
-                       <span className="text-4xl font-black text-gray-900 tracking-tight">{r.totalSales.toLocaleString()}원</span>
+                       <span className="text-4xl font-black text-gray-900 tracking-tight">{Number(r.totalSales || 0).toLocaleString()}원</span>
                     </div>
+                    
                     <button onClick={()=>setExpandedReportId(expandedReportId === r.id ? null : r.id)} className="w-full mt-6 py-5 bg-gray-900 text-white rounded-[24px] text-base font-black active:scale-95 flex items-center justify-center gap-2 shadow-xl">
-                      {expandedReportId === r.id ? <ChevronUp/> : <ChevronDown/>} 상세 보기
+                      {expandedReportId === r.id ? <ChevronUp/> : <ChevronDown/>} {expandedReportId === r.id ? '상세 닫기' : '상세 보기'}
                     </button>
+
+                    {expandedReportId === r.id && (
+                      <div className="mt-8 space-y-6 pt-8 border-t-4 border-dashed border-gray-100 animate-in fade-in zoom-in-95">
+                         {/* 수정 모드 */}
+                         {editReportId === r.id ? (
+                           <div className="space-y-4 bg-gray-50 p-6 rounded-3xl border-2 border-gray-200 shadow-inner">
+                             <p className="text-xs font-black text-rose-600 uppercase mb-4">Edit Report Mode</p>
+                             <div className="grid grid-cols-2 gap-4">
+                               <div className="space-y-1">
+                                 <label className="text-[10px] font-black text-gray-400">현금 매출</label>
+                                 <input type="number" value={editData.sales?.cash || ''} onChange={e=>setEditData({...editData, sales:{...editData.sales, cash:e.target.value}})} className="w-full p-3 bg-white rounded-xl border-none font-black text-gray-900 text-right" />
+                               </div>
+                               <div className="space-y-1">
+                                 <label className="text-[10px] font-black text-gray-400">카드 매출</label>
+                                 <input type="number" value={editData.sales?.card || ''} onChange={e=>setEditData({...editData, sales:{...editData.sales, card:e.target.value}})} className="w-full p-3 bg-white rounded-xl border-none font-black text-gray-900 text-right" />
+                               </div>
+                             </div>
+                             <div className="grid grid-cols-2 gap-4">
+                               <div className="space-y-1">
+                                 <label className="text-[10px] font-black text-gray-400">사용한 쌀 (kg)</label>
+                                 <input type="number" value={editData.inventory?.usedRice || ''} onChange={e=>setEditData({...editData, inventory:{...editData.inventory, usedRice:e.target.value}})} className="w-full p-3 bg-white rounded-xl border-none font-black text-gray-900 text-right" />
+                               </div>
+                               <div className="space-y-1">
+                                 <label className="text-[10px] font-black text-gray-400">재고 (개)</label>
+                                 <input type="number" value={editData.inventory?.stockCount || ''} onChange={e=>setEditData({...editData, inventory:{...editData.inventory, stockCount:e.target.value}})} className="w-full p-3 bg-white rounded-xl border-none font-black text-gray-900 text-right" />
+                               </div>
+                             </div>
+                             <div className="space-y-1">
+                               <label className="text-[10px] font-black text-gray-400">특이사항</label>
+                               <textarea value={editData.notes || ''} onChange={e=>setEditData({...editData, notes:e.target.value})} className="w-full p-3 bg-white rounded-xl border-none font-black text-gray-900" rows={3} />
+                             </div>
+                             <div className="flex gap-2 pt-2">
+                               <button onClick={saveEdit} className="flex-1 py-4 bg-green-600 text-white rounded-2xl font-black flex items-center justify-center gap-2 shadow-lg"><Save size={18}/> 저장하기</button>
+                               <button onClick={()=>{setEditReportId(null);setEditData(null)}} className="px-6 py-4 bg-gray-300 text-gray-700 rounded-2xl font-black">취소</button>
+                             </div>
+                           </div>
+                         ) : (
+                           <>
+                             <div className="grid grid-cols-2 gap-4">
+                                <div className="bg-gray-50 p-4 rounded-2xl border-2 border-gray-100">
+                                  <p className="text-[10px] font-black text-gray-400 mb-2 uppercase tracking-widest">Revenue Info</p>
+                                  <div className="flex justify-between items-center mb-1">
+                                    <span className="text-xs font-black text-gray-500">현금</span>
+                                    <span className="font-black text-gray-900">{Number(r.sales?.cash || 0).toLocaleString()}원</span>
+                                  </div>
+                                  <div className="flex justify-between items-center">
+                                    <span className="text-xs font-black text-gray-500">카드</span>
+                                    <span className="font-black text-gray-900">{Number(r.sales?.card || 0).toLocaleString()}원</span>
+                                  </div>
+                                </div>
+                                <div className="bg-gray-50 p-4 rounded-2xl border-2 border-gray-100">
+                                  <p className="text-[10px] font-black text-gray-400 mb-2 uppercase tracking-widest">Inventory Info</p>
+                                  <div className="flex justify-between items-center mb-1">
+                                    <span className="text-xs font-black text-gray-500">쌀 사용량</span>
+                                    <span className="font-black text-gray-900">{r.inventory?.usedRice || 0}kg</span>
+                                  </div>
+                                  <div className="flex justify-between items-center">
+                                    <span className="text-xs font-black text-gray-500">재고 수량</span>
+                                    <span className="font-black text-gray-900">{r.inventory?.stockCount || 0}개</span>
+                                  </div>
+                                </div>
+                             </div>
+
+                             <div className={`p-5 rounded-2xl border-4 ${r.inventory?.hasRiceForNextDay ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}>
+                               <p className="text-[10px] font-black text-gray-400 mb-1 uppercase">Next Day Rice Status</p>
+                               <p className={`font-black text-lg ${r.inventory?.hasRiceForNextDay ? 'text-green-700' : 'text-red-700'}`}>
+                                 {r.inventory?.hasRiceForNextDay ? '충분함 (1.5박스 이상)' : `부족함 (남은양: ${r.inventory?.remainingRiceAmount || '미기입'})`}
+                               </p>
+                             </div>
+
+                             <div className="bg-gray-900 p-6 rounded-3xl text-white italic font-bold leading-relaxed shadow-xl">
+                               <p className="text-[10px] text-gray-400 mb-2 uppercase tracking-widest not-italic">Manager Notes</p>
+                               "{r.notes || '전달사항 없음'}"
+                             </div>
+
+                             {/* 증빙 사진 */}
+                             <div className="grid grid-cols-5 gap-2">
+                               {r.photos && Object.entries(r.photos).map(([key, url]) => (
+                                 url && (
+                                   <div key={key} onClick={()=>setSelectedPhoto({url, name: photoNames[key], date: r.date, worker: r.worker})} className="aspect-square bg-gray-100 rounded-xl overflow-hidden border-2 border-gray-200 cursor-pointer hover:border-rose-500 transition-all">
+                                      <img src={url} className="w-full h-full object-cover" />
+                                   </div>
+                                 )
+                               ))}
+                             </div>
+
+                             <div className="flex gap-4 pt-4">
+                                <button onClick={()=>startEdit(r)} className="flex-1 py-5 bg-blue-600 text-white rounded-2xl font-black flex items-center justify-center gap-2 shadow-lg active:scale-95 transition-all"><Edit2 size={20}/> 리포트 수정</button>
+                                <button onClick={()=>setDeleteConfirmId(r.id)} className="flex-1 py-5 bg-red-600 text-white rounded-2xl font-black flex items-center justify-center gap-2 shadow-lg active:scale-95 transition-all"><Trash2 size={20}/> 리포트 삭제</button>
+                             </div>
+                           </>
+                         )}
+                      </div>
+                    )}
                   </div>
                 ))}
+                {filteredReports.length === 0 && (
+                   <div className="bg-white p-20 rounded-[40px] border-4 border-dashed border-gray-200 text-center font-black text-gray-300">제출된 리포트가 없습니다.</div>
+                )}
               </div>
             )}
           </div>
@@ -471,7 +593,7 @@ export default function App() {
                           <span className="text-[10px] font-black text-rose-600 bg-rose-50 px-3 py-1 rounded-full border border-rose-100">{n.date}</span>
                           <span className="text-[10px] font-black text-gray-400 flex items-center gap-1 font-sans"><Clock size={10}/> {formatTime(n.timestamp)}</span>
                        </div>
-                       <button onClick={() => executeDelete(n.id, 'notices')} className="text-[10px] font-black text-gray-300 hover:text-red-500">삭제</button>
+                       <button onClick={() => setDeleteConfirmId(n.id)} className="text-[10px] font-black text-gray-300 hover:text-red-500">삭제</button>
                     </div>
                     <p className="font-black text-gray-900 text-lg whitespace-pre-wrap leading-relaxed bg-gray-50/50 p-4 rounded-2xl border-2 border-gray-50">{n.content}</p>
                  </div>
