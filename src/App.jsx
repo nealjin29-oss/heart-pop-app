@@ -26,6 +26,17 @@ const db = getFirestore(app);
 const rawAppId = typeof __app_id !== 'undefined' ? __app_id : 'heart-pop-app-prod';
 const appId = rawAppId.replace(/\//g, '_');
 
+// --- Helper Functions for Formatting ---
+const formatComma = (val) => {
+  if (!val && val !== 0) return '';
+  const num = val.toString().replace(/[^0-9]/g, '');
+  return num ? Number(num).toLocaleString() : '';
+};
+
+const parseComma = (val) => {
+  return val.toString().replace(/[^0-9]/g, '');
+};
+
 // --- UI Data Mappings ---
 const supplyNames = {
   breadTieShort: '빵끈',
@@ -37,14 +48,7 @@ const supplyNames = {
 
 const checklistNames = {
   readyCash: '영업준비금 10만원 확인',
-  machineClean: '기기 청소',
-  acrylicClean: '아크릴통 청소',
-  hideStock: '재고 가리기',
-  receiptPaper: '영수증 용지 확인',
-  hideKey: '열쇠 숨기기',
-  changeEnough: '5천원권 충분',
-  posClose: 'POS 종료',
-  submitLog: '매출일지 사무실 제출'
+  changeEnough: '5천원권 충분'
 };
 
 const photoNames = {
@@ -129,7 +133,7 @@ export default function App() {
     worker: '정윤이',
     customWorker: '',
     sales: { cash: '', card: '' },
-    checklist: { readyCash: false, machineClean: false, acrylicClean: false, hideStock: false, receiptPaper: false, hideKey: false, changeEnough: false, posClose: false, submitLog: false },
+    checklist: { readyCash: false, changeEnough: false },
     inventory: { stockCount: '', usedRice: '', leftRice: '', loss: '', hasRiceForNextDay: null, remainingRiceAmount: '' },
     supplies: { breadTieShort: false, plasticBagShort: false, gloveShort: false, earmuffShort: false, maskShort: false, extra: '' },
     suppliesStock: { breadTieShort: '', plasticBagShort: '', gloveShort: '', earmuffShort: '', maskShort: '', extra: '' },
@@ -222,10 +226,21 @@ export default function App() {
     if (!formData.sales.cash || !formData.sales.card) return setAlertMessage("현금/카드 매출을 모두 입력해 주세요.");
     if (!user) return setAlertMessage("인증 중입니다. 잠시만 기다려 주세요.");
     setIsSubmitting(true);
-    const total = (Number(formData.sales.cash) || 0) + (Number(formData.sales.card) || 0);
+    
+    // 최종 제출 시 콤마 제거 후 숫자로 변환
+    const cashVal = Number(parseComma(formData.sales.cash)) || 0;
+    const cardVal = Number(parseComma(formData.sales.card)) || 0;
+    const total = cashVal + cardVal;
+    
+    const finalWorker = formData.worker === '직접입력' ? formData.customWorker : formData.worker;
+
     try {
       await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'reports', Date.now().toString()), {
-        ...formData, totalSales: total, timestamp: new Date().toISOString()
+        ...formData, 
+        worker: finalWorker,
+        sales: { cash: cashVal, card: cardVal },
+        totalSales: total, 
+        timestamp: new Date().toISOString()
       });
       setShowSubmitModal(true);
     } catch (e) { setAlertMessage("제출 실패: " + e.message); } finally { setIsSubmitting(false); }
@@ -257,9 +272,12 @@ export default function App() {
 
   const saveEdit = async () => {
     if (!user || !editData) return;
-    const total = (Number(editData.sales.cash) || 0) + (Number(editData.sales.card) || 0);
+    const cashVal = Number(parseComma(editData.sales.cash)) || 0;
+    const cardVal = Number(parseComma(editData.sales.card)) || 0;
+    const total = cashVal + cardVal;
+    
     const id = editData.id;
-    const updated = { ...editData, totalSales: total };
+    const updated = { ...editData, sales: { cash: cashVal, card: cardVal }, totalSales: total };
     delete updated.id;
     try {
       await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'reports', id), updated);
@@ -300,17 +318,19 @@ export default function App() {
 
   const filteredReports = useMemo(() => {
     let result = [...reports];
-    if (filterType === 'LOCATION') result = reports.filter(r => r.location === filterValue);
-    else if (filterType === 'WORKER') result = reports.filter(r => r.worker === filterValue);
+    if (filterType === 'LOCATION') {
+      result = reports.filter(r => r.location === filterValue);
+    } else if (filterType === 'WORKER') {
+      result = reports.filter(r => r.worker === filterValue);
+    }
     return result;
   }, [reports, filterType, filterValue]);
 
   const downloadCSV = () => {
-    const headers = ['일자', '위치', '매니저', '총매출', '현금', '카드', '사용한쌀(kg)', '재고(개)', '부족물품', '특이사항'];
+    const headers = ['일자', '위치', '매니저', '총매출', '현금', '카드', '사용한쌀(kg)', '재고(개)', '특이사항'];
     const rows = filteredReports.map(r => [
       r.date, r.location, r.worker, r.totalSales, r.sales?.cash, r.sales?.card, 
       r.inventory?.usedRice, r.inventory?.stockCount, 
-      Object.entries(r.supplies || {}).filter(([k,v]) => v === true).map(([k]) => supplyNames[k] || k).join('|'),
       (r.notes || "").replace(/,/g, " ")
     ]);
     const csvContent = "\uFEFF" + [headers.join(','), ...rows.map(e => e.join(','))].join('\n');
@@ -341,7 +361,7 @@ export default function App() {
     return days;
   };
 
-  // --- Navigation Menu ---
+  // --- Views ---
   const NavigationMenu = () => (
     <div className={`fixed inset-0 z-50 flex transition-opacity duration-300 ${isMenuOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}`}>
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setIsMenuOpen(false)} />
@@ -356,7 +376,7 @@ export default function App() {
           <button onClick={() => { setView('notices'); setIsMenuOpen(false); }} className={`w-full flex items-center gap-3 p-4 rounded-2xl font-black transition-all ${view === 'notices' ? 'bg-rose-600 text-white shadow-lg' : 'text-gray-600 hover:bg-gray-100'}`}>
             <MessageSquare size={20}/> 날짜별 공유사항
           </button>
-          <div className="pt-4 pb-2 px-4 text-[10px] font-black text-gray-400 uppercase tracking-widest font-sans">Manuals</div>
+          <div className="pt-4 pb-2 px-4 text-[10px] font-black text-gray-400 uppercase tracking-widest font-sans uppercase">Manuals</div>
           <button onClick={() => { setView('manual_open'); setIsMenuOpen(false); }} className={`w-full flex items-center gap-3 p-4 rounded-2xl font-black transition-all ${view === 'manual_open' ? 'bg-rose-600 text-white shadow-lg' : 'text-gray-600 hover:bg-gray-100'}`}>
             <BookOpen size={20}/> 오픈 매뉴얼
           </button>
@@ -400,7 +420,7 @@ export default function App() {
             <div className="bg-white p-6 rounded-[40px] border-4 border-gray-900 shadow-xl space-y-6 animate-in slide-in-from-top-4">
               <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                  <div className="space-y-1">
-                    <h3 className="text-xs font-black text-gray-400 uppercase tracking-widest font-sans">MONTHLY TOTAL SALES</h3>
+                    <h3 className="text-xs font-black text-gray-400 uppercase tracking-widest font-sans">월간 누적 매출</h3>
                     <p className="text-5xl font-black text-rose-600 tracking-tight">{monthlyStats.total.toLocaleString()}원</p>
                  </div>
                  <button onClick={downloadCSV} className="bg-green-600 text-white px-6 py-4 rounded-2xl font-black text-sm flex items-center gap-2 active:scale-95 shadow-xl font-sans"><FileSpreadsheet size={20}/> 엑셀(CSV) 다운로드</button>
@@ -450,39 +470,42 @@ export default function App() {
                       <span className={`px-5 py-2.5 rounded-full text-xs font-black text-white shadow-md ${r.location==='상행선'?'bg-red-600':'bg-blue-600'}`}>{r.worker}</span>
                     </div>
                     <div className="flex justify-between items-end border-t-4 border-gray-50 pt-6">
-                       <span className="text-xs font-black text-gray-500 uppercase tracking-widest font-sans">Calculated Sales</span>
+                       <span className="text-xs font-black text-gray-500 uppercase tracking-widest font-sans">매출 합계</span>
                        <span className="text-4xl font-black text-gray-900 tracking-tight">{Number(r.totalSales || 0).toLocaleString()}원</span>
                     </div>
+                    
                     <button onClick={()=>setExpandedReportId(expandedReportId === r.id ? null : r.id)} className="w-full mt-6 py-5 bg-gray-900 text-white rounded-[24px] text-base font-black active:scale-95 flex items-center justify-center gap-2 shadow-xl">
                       {expandedReportId === r.id ? <ChevronUp/> : <ChevronDown/>} {expandedReportId === r.id ? '상세 닫기' : '상세 보기'}
                     </button>
+
                     {expandedReportId === r.id && (
                       <div className="mt-8 space-y-6 pt-8 border-t-4 border-dashed border-gray-100 animate-in fade-in zoom-in-95">
+                         {/* 수정 모드 */}
                          {editReportId === r.id ? (
                            <div className="space-y-4 bg-gray-50 p-6 rounded-3xl border-2 border-gray-200 shadow-inner">
-                             <p className="text-xs font-black text-rose-600 uppercase mb-4 font-sans">Edit Report Mode</p>
+                             <p className="text-xs font-black text-rose-600 uppercase mb-4">리포트 수정 모드</p>
                              <div className="grid grid-cols-2 gap-4">
                                <div className="space-y-1">
-                                 <label className="text-[10px] font-black text-gray-400 uppercase font-sans">CASH 현금</label>
-                                 <input type="number" value={editData.sales?.cash || ''} onChange={e=>setEditData({...editData, sales:{...editData.sales, cash:e.target.value}})} className="w-full p-3 bg-white rounded-xl border-none font-black text-gray-900 text-right" />
+                                 <label className="text-[10px] font-black text-gray-400">현금 매출</label>
+                                 <input type="text" value={formatComma(editData.sales?.cash || '')} onChange={e=>setEditData({...editData, sales:{...editData.sales, cash:parseComma(e.target.value)}})} className="w-full p-3 bg-white rounded-xl border-none font-black text-gray-900 text-right" />
                                </div>
                                <div className="space-y-1">
-                                 <label className="text-[10px] font-black text-gray-400 uppercase font-sans">CARD 카드</label>
-                                 <input type="number" value={editData.sales?.card || ''} onChange={e=>setEditData({...editData, sales:{...editData.sales, card:e.target.value}})} className="w-full p-3 bg-white rounded-xl border-none font-black text-gray-900 text-right" />
+                                 <label className="text-[10px] font-black text-gray-400">카드 매출</label>
+                                 <input type="text" value={formatComma(editData.sales?.card || '')} onChange={e=>setEditData({...editData, sales:{...editData.sales, card:parseComma(e.target.value)}})} className="w-full p-3 bg-white rounded-xl border-none font-black text-gray-900 text-right" />
                                </div>
                              </div>
                              <div className="grid grid-cols-2 gap-4">
                                <div className="space-y-1">
-                                 <label className="text-[10px] font-black text-gray-400 uppercase font-sans">사용한 쌀 (kg)</label>
+                                 <label className="text-[10px] font-black text-gray-400">사용한 쌀 (kg)</label>
                                  <input type="number" value={editData.inventory?.usedRice || ''} onChange={e=>setEditData({...editData, inventory:{...editData.inventory, usedRice:e.target.value}})} className="w-full p-3 bg-white rounded-xl border-none font-black text-gray-900 text-right" />
                                </div>
                                <div className="space-y-1">
-                                 <label className="text-[10px] font-black text-gray-400 uppercase font-sans">재고 (개)</label>
+                                 <label className="text-[10px] font-black text-gray-400">재고 (개)</label>
                                  <input type="number" value={editData.inventory?.stockCount || ''} onChange={e=>setEditData({...editData, inventory:{...editData.inventory, stockCount:e.target.value}})} className="w-full p-3 bg-white rounded-xl border-none font-black text-gray-900 text-right" />
                                </div>
                              </div>
                              <div className="space-y-1">
-                               <label className="text-[10px] font-black text-gray-400 font-sans uppercase">Notes</label>
+                               <label className="text-[10px] font-black text-gray-400">특이사항</label>
                                <textarea value={editData.notes || ''} onChange={e=>setEditData({...editData, notes:e.target.value})} className="w-full p-3 bg-white rounded-xl border-none font-black text-gray-900" rows={3} />
                              </div>
                              <div className="flex gap-2 pt-2">
@@ -494,7 +517,7 @@ export default function App() {
                            <>
                              <div className="grid grid-cols-2 gap-4">
                                 <div className="bg-gray-50 p-4 rounded-2xl border-2 border-gray-100">
-                                  <p className="text-[10px] font-black text-gray-400 mb-2 uppercase tracking-widest font-sans">Revenue Info</p>
+                                  <p className="text-[10px] font-black text-gray-400 mb-2 uppercase tracking-widest font-sans">매출 정보</p>
                                   <div className="flex justify-between items-center mb-1">
                                     <span className="text-xs font-black text-gray-500">현금</span>
                                     <span className="font-black text-gray-900">{Number(r.sales?.cash || 0).toLocaleString()}원</span>
@@ -505,7 +528,7 @@ export default function App() {
                                   </div>
                                 </div>
                                 <div className="bg-gray-50 p-4 rounded-2xl border-2 border-gray-100">
-                                  <p className="text-[10px] font-black text-gray-400 mb-2 uppercase tracking-widest font-sans">Inventory Info</p>
+                                  <p className="text-[10px] font-black text-gray-400 mb-2 uppercase tracking-widest font-sans">재고 정보</p>
                                   <div className="flex justify-between items-center mb-1">
                                     <span className="text-xs font-black text-gray-500">쌀 사용량</span>
                                     <span className="font-black text-gray-900">{r.inventory?.usedRice || 0}kg</span>
@@ -516,16 +539,20 @@ export default function App() {
                                   </div>
                                 </div>
                              </div>
+
                              <div className={`p-5 rounded-2xl border-4 ${r.inventory?.hasRiceForNextDay ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}>
-                               <p className="text-[10px] font-black text-gray-400 mb-1 uppercase font-sans">Next Day Rice Status</p>
+                               <p className="text-[10px] font-black text-gray-400 mb-1 uppercase">익일 쌀 상태</p>
                                <p className={`font-black text-lg ${r.inventory?.hasRiceForNextDay ? 'text-green-700' : 'text-red-700'}`}>
                                  {r.inventory?.hasRiceForNextDay ? '충분함 (1.5박스 이상)' : `부족함 (남은양: ${r.inventory?.remainingRiceAmount || '미기입'})`}
                                </p>
                              </div>
+
                              <div className="bg-gray-900 p-6 rounded-3xl text-white italic font-bold leading-relaxed shadow-xl">
-                               <p className="text-[10px] text-gray-400 mb-2 uppercase tracking-widest not-italic font-sans">Manager Notes</p>
+                               <p className="text-[10px] text-gray-400 mb-2 uppercase tracking-widest not-italic">매니저 전달사항</p>
                                "{r.notes || '전달사항 없음'}"
                              </div>
+
+                             {/* 증빙 사진 */}
                              <div className="grid grid-cols-5 gap-2">
                                {r.photos && Object.entries(r.photos).map(([key, url]) => (
                                  url && (
@@ -535,9 +562,10 @@ export default function App() {
                                  )
                                ))}
                              </div>
+
                              <div className="flex gap-4 pt-4">
-                                <button onClick={()=>startEdit(r)} className="flex-1 py-5 bg-blue-600 text-white rounded-2xl font-black flex items-center justify-center gap-2 shadow-lg active:scale-95 transition-all font-sans uppercase"><Edit2 size={20}/> EDIT</button>
-                                <button onClick={()=>setDeleteConfirmId(r.id)} className="flex-1 py-5 bg-red-600 text-white rounded-2xl font-black flex items-center justify-center gap-2 shadow-lg active:scale-95 transition-all font-sans uppercase"><Trash2 size={20}/> DELETE</button>
+                                <button onClick={()=>startEdit(r)} className="flex-1 py-5 bg-blue-600 text-white rounded-2xl font-black flex items-center justify-center gap-2 shadow-lg active:scale-95 transition-all"><Edit2 size={20}/> 리포트 수정</button>
+                                <button onClick={()=>setDeleteConfirmId(r.id)} className="flex-1 py-5 bg-red-600 text-white rounded-2xl font-black flex items-center justify-center gap-2 shadow-lg active:scale-95 transition-all"><Trash2 size={20}/> 리포트 삭제</button>
                              </div>
                            </>
                          )}
@@ -546,7 +574,7 @@ export default function App() {
                   </div>
                 ))}
                 {filteredReports.length === 0 && (
-                   <div className="bg-white p-20 rounded-[40px] border-4 border-dashed border-gray-200 text-center font-black text-gray-300 font-sans uppercase">NO REPORTS FOUND</div>
+                   <div className="bg-white p-20 rounded-[40px] border-4 border-dashed border-gray-200 text-center font-black text-gray-300">제출된 리포트가 없습니다.</div>
                 )}
               </div>
             )}
@@ -570,7 +598,7 @@ export default function App() {
               <button onClick={submitNotice} className="w-full py-5 bg-rose-600 text-white rounded-2xl font-black text-xl shadow-lg active:scale-95 transition-all">공유사항 등록</button>
             </div>
             <div className="space-y-4">
-               <h3 className="px-4 text-xs font-black text-gray-400 uppercase tracking-widest font-sans">Recent Updates</h3>
+               <h3 className="px-4 text-xs font-black text-gray-400 uppercase tracking-widest font-sans">최근 소식</h3>
                {notices.map(n => (
                  <div key={n.id} className="bg-white p-6 rounded-[32px] border-4 border-gray-900 shadow-md animate-in slide-in-from-bottom-2">
                     <div className="flex justify-between items-center mb-4">
@@ -578,7 +606,7 @@ export default function App() {
                           <span className="text-[10px] font-black text-rose-600 bg-rose-50 px-3 py-1 rounded-full border border-rose-100">{n.date}</span>
                           <span className="text-[10px] font-black text-gray-400 flex items-center gap-1 font-sans"><Clock size={10}/> {formatTime(n.timestamp)}</span>
                        </div>
-                       <button onClick={() => setDeleteConfirmId(n.id)} className="text-[10px] font-black text-gray-300 hover:text-red-500 font-sans uppercase">DELETE</button>
+                       <button onClick={() => setDeleteConfirmId(n.id)} className="text-[10px] font-black text-gray-300 hover:text-red-500">삭제</button>
                     </div>
                     <p className="font-black text-gray-900 text-lg whitespace-pre-wrap leading-relaxed bg-gray-50/50 p-4 rounded-2xl border-2 border-gray-50">{n.content}</p>
                  </div>
@@ -594,6 +622,7 @@ export default function App() {
       const manualItems = isOpen ? openManualItems : closeManualItems;
       const checks = isOpen ? openChecks : closeChecks;
       const toggleFn = isOpen ? toggleOpenManualCheck : toggleCloseManualCheck;
+      
       const checkedCount = Object.values(checks).filter(Boolean).length;
       const progress = Math.round((checkedCount / manualItems.length) * 100);
 
@@ -604,26 +633,41 @@ export default function App() {
             <h1 className="font-black text-gray-900 text-xl tracking-tight">하트뻥튀기 (처인휴게소)</h1>
             <div className="w-10"></div>
           </header>
+          
           <div className="p-4 space-y-6">
             <div className="bg-white p-6 rounded-[44px] border-4 border-gray-900 shadow-xl space-y-6">
               <div className="flex justify-between items-end">
                 <h2 className="text-sm font-black text-rose-600 border-l-8 border-rose-600 pl-4 uppercase font-sans tracking-widest">
-                  {isOpen ? 'OPEN MANUAL 오픈 매뉴얼' : 'CLOSE MANUAL 마감 매뉴얼'}
+                  {isOpen ? '오픈 매뉴얼' : '마감 매뉴얼'}
                 </h2>
                 <span className="text-3xl font-black text-gray-900 font-sans">{progress}%</span>
               </div>
+              
+              {/* Progress Bar */}
               <div className="w-full h-6 bg-gray-100 rounded-full border-2 border-gray-900 overflow-hidden shadow-inner">
-                <div className="h-full bg-rose-600 transition-all duration-500 ease-out" style={{ width: `${progress}%` }} />
+                <div 
+                  className="h-full bg-rose-600 transition-all duration-500 ease-out" 
+                  style={{ width: `${progress}%` }}
+                />
               </div>
+
               <div className="bg-rose-50 p-5 rounded-3xl border-2 border-rose-200">
                 <p className="text-sm font-black text-rose-800 leading-relaxed text-center italic">
-                  {isOpen ? '"적혀있는 순서대로 오픈하기를 권장드립니다. 개인의 기호에 따라 편하신 대로 선택하셔도 됩니다."' : '"깨끗한 매장을 위해 마감 수칙을 꼭 지켜주세요. 오늘도 정말 고생 많으셨습니다."'}
+                  {isOpen 
+                    ? '"적혀있는 순서대로 오픈하기를 권장드립니다."'
+                    : '"깨끗한 매장을 위해 마감 수칙을 꼭 지켜주세요. 오늘도 수고하셨습니다."'
+                  }
                 </p>
               </div>
             </div>
+
             <div className="space-y-3">
               {manualItems.map((item) => (
-                <button key={item.id} onClick={() => toggleFn(item.id)} className={`w-full flex items-center gap-5 p-5 rounded-3xl border-4 transition-all duration-300 transform active:scale-[0.98] ${checks[item.id] ? 'bg-rose-50 border-rose-600 shadow-inner' : 'bg-white border-gray-100 shadow-lg'}`}>
+                <button 
+                  key={item.id}
+                  onClick={() => toggleFn(item.id)}
+                  className={`w-full flex items-center gap-5 p-5 rounded-3xl border-4 transition-all duration-300 transform active:scale-[0.98] ${checks[item.id] ? 'bg-rose-50 border-rose-600 shadow-inner' : 'bg-white border-gray-100 shadow-lg'}`}
+                >
                   <div className={`w-12 h-12 rounded-2xl flex items-center justify-center shadow-md flex-shrink-0 ${checks[item.id] ? 'bg-rose-600 text-white' : 'bg-gray-100'}`}>
                     {checks[item.id] ? <CheckCircle2 size={28}/> : item.icon}
                   </div>
@@ -634,10 +678,11 @@ export default function App() {
                 </button>
               ))}
             </div>
+
             {progress === 100 && (
               <div className="bg-green-600 p-8 rounded-[44px] text-white text-center shadow-2xl animate-in zoom-in font-black space-y-2">
                 <h3 className="text-2xl">{isOpen ? '준비 완료! ✨' : '마감 완료! 🌙'}</h3>
-                <p className="opacity-80 font-sans uppercase">{isOpen ? 'GOOD LUCK TODAY!' : 'HAVE A NICE REST!'}</p>
+                <p className="opacity-80 font-sans uppercase">오늘도 힘내세요!</p>
               </div>
             )}
           </div>
@@ -657,20 +702,17 @@ export default function App() {
         </header>
 
         <div className="p-4 space-y-8 animate-in slide-in-from-bottom-4 duration-700">
-          {/* 💡 수정: 투데이 워크 데이트 고정 해제 (본문으로 이동) */}
           <div className="flex items-center gap-4 bg-gray-50 p-4 rounded-[28px] border-2 border-gray-900 mt-2 shadow-inner">
              <div className="flex-1 flex flex-col">
-                <span className="text-[10px] font-black text-gray-400 uppercase tracking-tighter mb-0.5 font-sans">TODAY WORK DATE</span>
+                <span className="text-[10px] font-black text-gray-400 uppercase tracking-tighter mb-0.5 font-sans">오늘 날짜</span>
                 <input type="date" value={formData.date} onChange={e => setFormData({...formData, date: e.target.value})} className="text-base font-black text-gray-900 bg-transparent border-none p-0 focus:ring-0 cursor-pointer" />
              </div>
              <div className="flex gap-3">
                 <div className="flex flex-col items-center">
-                   {/* 💡 수정: UP -> 상행선 */}
                    <span className="text-[9px] font-black text-gray-400 mb-1 font-sans">상행선</span>
                    <span className={`text-[10px] font-black px-3 py-1 rounded-full border-2 transition-all duration-500 ${dailyStatus.상행선 === '제출완료' ? 'bg-green-600 text-white border-green-600 shadow-md' : 'bg-white text-gray-300 border-gray-200'}`}>{dailyStatus.상행선}</span>
                 </div>
                 <div className="flex flex-col items-center">
-                   {/* 💡 수정: DOWN -> 하행선 */}
                    <span className="text-[9px] font-black text-gray-400 mb-1 font-sans">하행선</span>
                    <span className={`text-[10px] font-black px-3 py-1 rounded-full border-2 transition-all duration-500 ${dailyStatus.하행선 === '제출완료' ? 'bg-green-600 text-white border-green-600 shadow-md' : 'bg-white text-gray-300 border-gray-200'}`}>{dailyStatus.하행선}</span>
                 </div>
@@ -680,11 +722,22 @@ export default function App() {
           <section className="bg-white p-6 rounded-[44px] border-4 border-gray-900 shadow-2xl space-y-6">
             <h2 className="text-sm font-black text-gray-900 border-l-8 border-rose-600 pl-4 uppercase tracking-widest font-sans">1. 기본 정보 및 매출</h2>
             <div className="space-y-6 pt-2">
-               <div className="flex justify-between items-center">
-                  <label className="text-lg font-black text-gray-900">근무 매니저</label>
-                  <select value={formData.worker} onChange={e=>setFormData({...formData, worker:e.target.value})} className="bg-gray-100 p-4 rounded-2xl text-base font-black border-none outline-none focus:ring-4 ring-rose-500 text-gray-900 shadow-inner">
-                    <option>정윤이</option><option>황진웅</option><option>최윤미</option><option>장유미</option><option>윤종규</option><option>직접입력</option>
-                  </select>
+               <div className="flex flex-col gap-3">
+                  <div className="flex justify-between items-center">
+                    <label className="text-lg font-black text-gray-900">근무 매니저</label>
+                    <select value={formData.worker} onChange={e=>setFormData({...formData, worker:e.target.value})} className="bg-gray-100 p-4 rounded-2xl text-base font-black border-none outline-none focus:ring-4 ring-rose-500 text-gray-900 shadow-inner">
+                      <option>정윤이</option><option>황진웅</option><option>최윤미</option><option>장유미</option><option>윤종규</option><option>직접입력</option>
+                    </select>
+                  </div>
+                  {formData.worker === '직접입력' && (
+                    <input 
+                      type="text" 
+                      value={formData.customWorker} 
+                      onChange={e=>setFormData({...formData, customWorker: e.target.value})} 
+                      placeholder="이름을 입력해 주세요" 
+                      className="w-full p-4 bg-gray-100 rounded-2xl font-black text-gray-900 border-none outline-none shadow-inner focus:ring-4 ring-rose-300 animate-in slide-in-from-top-2"
+                    />
+                  )}
                </div>
                <div className="flex justify-between items-center">
                   <label className="text-lg font-black text-gray-900">영업 위치</label>
@@ -698,17 +751,17 @@ export default function App() {
             <div className="space-y-4 pt-8 border-t-2 border-dashed border-gray-100">
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-1">
-                  <label className="text-[11px] font-black text-gray-900 ml-1 uppercase font-sans">CASH 현금</label>
-                  <input type="number" value={formData.sales.cash} onChange={e=>setFormData({...formData, sales:{...formData.sales, cash:e.target.value}})} className="w-full p-5 bg-gray-100 rounded-[28px] border-none outline-none font-black text-right text-gray-900 text-2xl shadow-inner focus:ring-4 ring-rose-200" placeholder="0" />
+                  <label className="text-[11px] font-black text-gray-900 ml-1 uppercase font-sans">현금 매출</label>
+                  <input type="text" value={formatComma(formData.sales.cash)} onChange={e=>setFormData({...formData, sales:{...formData.sales, cash:parseComma(e.target.value)}})} className="w-full p-5 bg-gray-100 rounded-[28px] border-none outline-none font-black text-right text-gray-900 text-2xl shadow-inner focus:ring-4 ring-rose-200" placeholder="0" />
                 </div>
                 <div className="space-y-1">
-                  <label className="text-[11px] font-black text-gray-900 ml-1 uppercase font-sans">CARD 카드</label>
-                  <input type="number" value={formData.sales.card} onChange={e=>setFormData({...formData, sales:{...formData.sales, card:e.target.value}})} className="w-full p-5 bg-gray-100 rounded-[28px] border-none outline-none font-black text-right text-gray-900 text-2xl shadow-inner focus:ring-4 ring-rose-200" placeholder="0" />
+                  <label className="text-[11px] font-black text-gray-900 ml-1 uppercase font-sans">카드 매출</label>
+                  <input type="text" value={formatComma(formData.sales.card)} onChange={e=>setFormData({...formData, sales:{...formData.sales, card:parseComma(e.target.value)}})} className="w-full p-5 bg-gray-100 rounded-[28px] border-none outline-none font-black text-right text-gray-900 text-2xl shadow-inner focus:ring-4 ring-rose-200" placeholder="0" />
                 </div>
               </div>
-              <div className={`p-6 rounded-[32px] flex justify-between items-center text-white shadow-2xl transition-all duration-700 transform ${formData.location === '상행선' ? 'bg-red-600' : 'bg-blue-600'} hover:scale-[1.03]`}>
-                <span className="text-xl font-black">오늘 마감 합계</span>
-                <span className="text-4xl font-black tracking-tight font-sans">{((Number(formData.sales.cash)||0)+(Number(formData.sales.card)||0)).toLocaleString()}원</span>
+              <div className={`p-4 rounded-[28px] flex justify-between items-center text-white shadow-2xl transition-all duration-700 transform ${formData.location === '상행선' ? 'bg-red-600' : 'bg-blue-600'} hover:scale-[1.01]`}>
+                <span className="text-base font-black">오늘 마감 합계</span>
+                <span className="text-2xl font-black tracking-tight font-sans">{((Number(parseComma(formData.sales.cash))||0)+(Number(parseComma(formData.sales.card))||0)).toLocaleString()}원</span>
               </div>
             </div>
           </section>
@@ -729,16 +782,16 @@ export default function App() {
             <h2 className="text-sm font-black text-gray-900 border-l-8 border-rose-600 pl-4 uppercase tracking-widest font-sans">3. 재료 및 재고 현황</h2>
             <div className="grid grid-cols-2 gap-4 pt-2">
               <div className="space-y-1">
-                <label className="text-[11px] font-black text-gray-900 ml-1 uppercase font-sans">STOCK 재고 (개)</label>
+                <label className="text-[11px] font-black text-gray-900 ml-1 uppercase font-sans">재고 (개)</label>
                 <input type="number" value={formData.inventory.stockCount} onChange={e=>setFormData({...formData, inventory:{...formData.inventory, stockCount:e.target.value}})} className="w-full p-5 bg-gray-100 rounded-[28px] border-none outline-none font-black text-right text-gray-900 text-2xl shadow-inner focus:ring-4 ring-rose-200" placeholder="0" />
               </div>
               <div className="space-y-1">
-                <label className="text-[11px] font-black text-gray-900 ml-1 uppercase font-sans">사용한 쌀 (kg)</label>
+                <label className="text-[11px] font-black text-gray-900 ml-1 uppercase font-sans">쌀 사용량 (kg)</label>
                 <input type="number" value={formData.inventory.usedRice} onChange={e=>setFormData({...formData, inventory:{...formData.inventory, usedRice:e.target.value}})} className="w-full p-5 bg-gray-100 rounded-[28px] border-none outline-none font-black text-right text-gray-900 text-2xl shadow-inner focus:ring-4 ring-rose-200" placeholder="0" />
               </div>
             </div>
             <div className="pt-8 border-t-2 border-dashed border-gray-100 space-y-5">
-              <p className="text-xl font-black text-gray-900 text-center leading-tight">내일 사용할 쌀이 충분한가요?<br/><span className="text-xs text-rose-500 font-bold tracking-tighter uppercase font-sans">(1.5 BOX MINIMUM CHECK)</span></p>
+              <p className="text-xl font-black text-gray-900 text-center leading-tight">내일 사용할 쌀이 충분한가요?<br/><span className="text-xs text-rose-500 font-bold tracking-tighter uppercase font-sans">(최소 1.5박스 확인)</span></p>
               <div className="flex gap-4">
                 <button onClick={()=>setFormData({...formData, inventory:{...formData.inventory, hasRiceForNextDay:true, remainingRiceAmount: ''}})} className={`flex-1 py-6 rounded-[28px] font-black text-xl border-4 transition-all duration-300 transform active:scale-95 ${formData.inventory.hasRiceForNextDay===true?'bg-rose-600 border-rose-600 text-white shadow-2xl':'bg-white border-gray-100 text-gray-400'}`}>네, 충분함</button>
                 <button onClick={()=>setFormData({...formData, inventory:{...formData.inventory, hasRiceForNextDay:false}})} className={`flex-1 py-6 rounded-[28px] font-black text-xl border-4 transition-all duration-300 transform active:scale-95 ${formData.inventory.hasRiceForNextDay===false?'bg-gray-900 border-gray-900 text-white shadow-2xl':'bg-white border-gray-100 text-gray-400'}`}>아니오, 부족</button>
@@ -761,7 +814,7 @@ export default function App() {
               {Object.keys(photoNames).map(p=>(
                 <label key={p} className={`aspect-square rounded-[36px] border-4 border-dashed flex flex-col items-center justify-center cursor-pointer overflow-hidden relative transition-all duration-200 transform active:scale-90 ${formData.photos[p] ? 'bg-gray-50 border-rose-500 shadow-2xl scale-[1.02]' : 'bg-gray-50 border-gray-200 hover:border-gray-900'}`}>
                   <input type="file" accept="image/*" className="hidden" onChange={e=>handlePhotoChange(p, e)} disabled={isUploading} />
-                  {formData.photos[p] ? <img src={formData.photos[p]} className="w-full h-full object-cover" /> : <div className="flex flex-col items-center opacity-40"><Camera size={40} className="text-gray-900 mb-2"/><span className="text-[11px] font-black text-gray-900 uppercase tracking-tighter uppercase font-sans">{photoNames[p]}</span></div>}
+                  {formData.photos[p] ? <img src={formData.photos[p]} className="w-full h-full object-cover" /> : <div className="flex flex-col items-center opacity-40"><Camera size={40} className="text-gray-900 mb-2"/><span className="text-[11px] font-black text-gray-900 uppercase tracking-tighter">{photoNames[p]}</span></div>}
                   {formData.photos[p] && <div className="absolute inset-0 bg-rose-600/10 flex items-center justify-center animate-in zoom-in duration-300"><CheckCircle2 className="text-rose-600" size={56}/></div>}
                 </label>
               ))}
@@ -795,16 +848,19 @@ export default function App() {
     <>
       <NavigationMenu />
       {renderView()}
+
+      {/* --- Common Popups --- */}
       {showSubmitModal && (
         <div className="fixed inset-0 bg-black/95 z-[300] flex items-center justify-center p-8 backdrop-blur-2xl animate-in fade-in duration-300">
           <div className="bg-white p-12 rounded-[64px] w-full text-center shadow-2xl border-[12px] border-gray-900 animate-in zoom-in duration-500">
             <div className="bg-green-100 w-36 h-36 rounded-full flex items-center justify-center mx-auto mb-10 shadow-inner"><CheckCircle2 size={84} className="text-green-600"/></div>
-            <h3 className="text-4xl font-black mb-6 text-gray-900 tracking-tighter uppercase font-sans tracking-widest">SUCCESS</h3>
+            <h3 className="text-4xl font-black mb-6 text-gray-900 tracking-tighter uppercase font-sans tracking-widest uppercase">SUCCESS</h3>
             <p className="text-gray-500 mb-14 font-black text-2xl leading-relaxed">매니저님, 정말 고생 많으셨습니다!<br/>조심히 들어가세요. ✨</p>
             <button onClick={() => { window.location.reload(); }} className="w-full bg-gray-900 text-white py-8 rounded-[36px] font-black text-2xl shadow-2xl hover:bg-black active:scale-95 transition-all uppercase tracking-widest font-sans">Main Return</button>
           </div>
         </div>
       )}
+
       {alertMessage && (
         <div className="fixed inset-0 bg-black/85 z-[310] flex items-center justify-center p-8 backdrop-blur-sm" onClick={()=>setAlertMessage('')}>
           <div className="bg-white p-12 rounded-[56px] w-full text-center border-8 border-rose-600 shadow-2xl animate-in zoom-in-95 duration-300" onClick={e=>e.stopPropagation()}>
@@ -814,6 +870,7 @@ export default function App() {
           </div>
         </div>
       )}
+
       {selectedPhoto && (
         <div className="fixed inset-0 bg-black/98 z-[100] flex flex-col items-center justify-center p-6 animate-in fade-in duration-300" onClick={()=>setSelectedPhoto(null)}>
           <div className="absolute top-8 right-8 flex gap-8">
@@ -827,6 +884,7 @@ export default function App() {
           </div>
         </div>
       )}
+
       {deleteConfirmId && (
         <div className="fixed inset-0 bg-black/85 z-[200] flex items-center justify-center p-8 backdrop-blur-md animate-in fade-in duration-200">
            <div className="bg-white p-12 rounded-[56px] w-full max-w-sm text-center border-[10px] border-red-600 shadow-2xl animate-in zoom-in-95 duration-300">
