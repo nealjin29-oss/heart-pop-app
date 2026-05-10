@@ -38,6 +38,8 @@ const parseComma = (val) => {
 };
 
 // --- UI Data Mappings ---
+const managerList = ['정윤이', '황진웅', '최윤미', '장유미', '윤종규'];
+
 const supplyNames = {
   breadTieShort: '빵끈',
   plasticBagShort: '포장 비닐',
@@ -134,7 +136,17 @@ export default function App() {
     customWorker: '',
     sales: { cash: '', card: '' },
     checklist: { readyCash: false, changeEnough: false },
-    inventory: { stockCount: '', usedRice: '', leftRice: '', loss: '', hasRiceForNextDay: null, remainingRiceAmount: '' },
+    inventory: { 
+      stockCount: '', 
+      usedRice: '', 
+      leftRice: '', 
+      loss: '', 
+      hasRiceForNextDay: null, 
+      remainingRiceAmount: '',
+      bagStatus: null,
+      tieStatus: null,
+      otherSupplies: ''
+    },
     supplies: { breadTieShort: false, plasticBagShort: false, gloveShort: false, earmuffShort: false, maskShort: false, extra: '' },
     suppliesStock: { breadTieShort: '', plasticBagShort: '', gloveShort: '', earmuffShort: '', maskShort: '', extra: '' },
     photos: { riceBin: null, pot: null, desk: null, report: null, key: null },
@@ -227,7 +239,6 @@ export default function App() {
     if (!user) return setAlertMessage("인증 중입니다. 잠시만 기다려 주세요.");
     setIsSubmitting(true);
     
-    // 최종 제출 시 콤마 제거 후 숫자로 변환
     const cashVal = Number(parseComma(formData.sales.cash)) || 0;
     const cardVal = Number(parseComma(formData.sales.card)) || 0;
     const total = cashVal + cardVal;
@@ -311,9 +322,23 @@ export default function App() {
     const total = mReports.reduce((s, r) => s + (Number(r.totalSales) || 0), 0);
     const sang = mReports.filter(r => r.location === '상행선').reduce((s, r) => s + (Number(r.totalSales) || 0), 0);
     const ha = mReports.filter(r => r.location === '하행선').reduce((s, r) => s + (Number(r.totalSales) || 0), 0);
+    
+    // 현금/카드 누적 집계
+    const cash = mReports.reduce((s, r) => s + (Number(r.sales?.cash) || 0), 0);
+    const card = mReports.reduce((s, r) => s + (Number(r.sales?.card) || 0), 0);
+    
+    // 비중 계산
+    const cashPercent = total > 0 ? Math.round((cash / total) * 100) : 0;
+    const cardPercent = total > 0 ? Math.round((card / total) * 100) : 0;
+
     const attend = {};
-    mReports.forEach(r => { attend[r.worker] = (attend[r.worker] || 0) + 1; });
-    return { total, sang, ha, attend };
+    managerList.forEach(name => attend[name] = 0);
+    mReports.forEach(r => { 
+      if (attend[r.worker] !== undefined) attend[r.worker] += 1;
+      else attend[r.worker] = (attend[r.worker] || 0) + 1;
+    });
+    
+    return { total, sang, ha, attend, cash, card, cashPercent, cardPercent };
   }, [reports, calendarDate]);
 
   const filteredReports = useMemo(() => {
@@ -376,7 +401,7 @@ export default function App() {
           <button onClick={() => { setView('notices'); setIsMenuOpen(false); }} className={`w-full flex items-center gap-3 p-4 rounded-2xl font-black transition-all ${view === 'notices' ? 'bg-rose-600 text-white shadow-lg' : 'text-gray-600 hover:bg-gray-100'}`}>
             <MessageSquare size={20}/> 날짜별 공유사항
           </button>
-          <div className="pt-4 pb-2 px-4 text-[10px] font-black text-gray-400 uppercase tracking-widest font-sans uppercase">Manuals</div>
+          <div className="pt-4 pb-2 px-4 text-[10px] font-black text-gray-400 uppercase tracking-widest font-sans uppercase font-sans tracking-widest font-sans">Manuals</div>
           <button onClick={() => { setView('manual_open'); setIsMenuOpen(false); }} className={`w-full flex items-center gap-3 p-4 rounded-2xl font-black transition-all ${view === 'manual_open' ? 'bg-rose-600 text-white shadow-lg' : 'text-gray-600 hover:bg-gray-100'}`}>
             <BookOpen size={20}/> 오픈 매뉴얼
           </button>
@@ -397,13 +422,13 @@ export default function App() {
     if (view === 'login') {
       return (
         <div className="max-w-md mx-auto min-h-screen flex items-center justify-center p-4 bg-white font-sans">
-          <div className="bg-white p-8 rounded-2xl shadow-2xl w-full border-2 border-gray-900">
-            <h2 className="text-2xl font-black text-center mb-8 text-gray-900">관리자 보안 접속</h2>
+          <div className="bg-white p-8 rounded-2xl shadow-2xl w-full border-2 border-gray-900 text-center">
+            <h2 className="text-2xl font-black mb-8 text-gray-900">관리자 보안 접속</h2>
             <form onSubmit={(e) => { e.preventDefault(); if (adminPwd === '940329') { setView('admin'); setAdminPwd(''); } else setAlertMessage('인증 암호가 일치하지 않습니다.'); }} className="space-y-6">
               <input type="password" autoFocus value={adminPwd} onChange={e=>setAdminPwd(e.target.value)} className="w-full p-5 bg-gray-100 rounded-xl border-none outline-none text-center text-3xl font-black focus:ring-4 ring-rose-500 text-gray-900 shadow-inner" placeholder="••••••" />
               <button type="submit" className="w-full bg-gray-900 text-white py-5 rounded-xl font-black text-xl active:scale-95 transition-transform">인증하기</button>
             </form>
-            <button onClick={()=>setView('form')} className="w-full mt-6 text-gray-900 font-bold text-sm underline text-center">돌아가기</button>
+            <button onClick={()=>setView('form')} className="mt-6 text-gray-900 font-bold text-sm underline">돌아가기</button>
           </div>
         </div>
       );
@@ -425,6 +450,7 @@ export default function App() {
                  </div>
                  <button onClick={downloadCSV} className="bg-green-600 text-white px-6 py-4 rounded-2xl font-black text-sm flex items-center gap-2 active:scale-95 shadow-xl font-sans"><FileSpreadsheet size={20}/> 엑셀(CSV) 다운로드</button>
               </div>
+              
               <div className="grid grid-cols-2 gap-4">
                  <div className="bg-red-50 p-5 rounded-3xl border-2 border-red-200 shadow-inner">
                     <h4 className="text-[10px] font-black text-red-400 mb-1 uppercase tracking-tighter">상행선 누적</h4>
@@ -435,28 +461,58 @@ export default function App() {
                     <p className="text-2xl font-black text-blue-600">{monthlyStats.ha.toLocaleString()}원</p>
                  </div>
               </div>
+
+              {/* 추가된 현금/카드 누적 현황 */}
+              <div className="grid grid-cols-2 gap-4 pt-2">
+                 <div className="bg-gray-50 p-5 rounded-3xl border-2 border-gray-200 shadow-sm">
+                    <h4 className="text-[10px] font-black text-gray-400 mb-1 uppercase tracking-tighter">현금 누적 ({monthlyStats.cashPercent}%)</h4>
+                    <p className="text-2xl font-black text-gray-700">{monthlyStats.cash.toLocaleString()}원</p>
+                 </div>
+                 <div className="bg-gray-50 p-5 rounded-3xl border-2 border-gray-200 shadow-sm">
+                    <h4 className="text-[10px] font-black text-gray-400 mb-1 uppercase tracking-tighter">카드 누적 ({monthlyStats.cardPercent}%)</h4>
+                    <p className="text-2xl font-black text-gray-700">{monthlyStats.card.toLocaleString()}원</p>
+                 </div>
+              </div>
             </div>
+
             <div className="flex bg-gray-100 p-2 rounded-[32px] border-2 border-gray-200">
               <button onClick={()=>setAdminViewMode('list')} className={`flex-1 py-4 rounded-2xl text-base font-black transition-all ${adminViewMode==='list'?'bg-white shadow-xl text-gray-900':'text-gray-500'}`}>리포트 목록</button>
               <button onClick={()=>setAdminViewMode('calendar')} className={`flex-1 py-4 rounded-2xl text-base font-black transition-all ${adminViewMode==='calendar'?'bg-white shadow-xl text-gray-900':'text-gray-500'}`}>집계 달력</button>
             </div>
+
             {adminViewMode === 'calendar' ? (
-              <div className="bg-white p-6 rounded-[40px] border-4 border-gray-900 shadow-xl animate-in fade-in">
-                <div className="flex justify-between items-center mb-8 px-4">
-                  <button onClick={()=>setCalendarDate(new Date(calendarDate.getFullYear(), calendarDate.getMonth()-1, 1))} className="p-3 bg-gray-100 rounded-full hover:bg-gray-200"><ChevronLeft size={28} className="text-gray-900"/></button>
-                  <span className="font-black text-3xl text-gray-900">{calendarDate.getFullYear()}년 {calendarDate.getMonth()+1}월</span>
-                  <button onClick={()=>setCalendarDate(new Date(calendarDate.getFullYear(), calendarDate.getMonth()+1, 1))} className="p-3 bg-gray-100 rounded-full hover:bg-gray-200"><ChevronRight size={28} className="text-gray-900"/></button>
+              <div className="space-y-6">
+                <div className="bg-white p-6 rounded-[40px] border-4 border-gray-900 shadow-xl animate-in fade-in">
+                  <div className="flex justify-between items-center mb-8 px-4">
+                    <button onClick={()=>setCalendarDate(new Date(calendarDate.getFullYear(), calendarDate.getMonth()-1, 1))} className="p-3 bg-gray-100 rounded-full hover:bg-gray-200"><ChevronLeft size={28} className="text-gray-900"/></button>
+                    <span className="font-black text-3xl text-gray-900">{calendarDate.getFullYear()}년 {calendarDate.getMonth()+1}월</span>
+                    <button onClick={()=>setCalendarDate(new Date(calendarDate.getFullYear(), calendarDate.getMonth()+1, 1))} className="p-3 bg-gray-100 rounded-full hover:bg-gray-200"><ChevronRight size={28} className="text-gray-900"/></button>
+                  </div>
+                  <div className="grid grid-cols-7 gap-1 text-center mb-3 text-[12px] font-black text-gray-400 uppercase tracking-widest font-sans font-sans">
+                    {['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map(d=><div key={d}>{d}</div>)}
+                  </div>
+                  <div className="grid grid-cols-7 gap-1">{renderCalendar()}</div>
                 </div>
-                <div className="grid grid-cols-7 gap-1 text-center mb-3 text-[12px] font-black text-gray-400 uppercase tracking-widest font-sans">
-                  {['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map(d=><div key={d}>{d}</div>)}
+
+                {/* 추가된 근무자별 출근일수 집계 */}
+                <div className="bg-white p-8 rounded-[40px] border-4 border-gray-900 shadow-xl space-y-6 animate-in slide-in-from-bottom-4">
+                   <h3 className="text-xl font-black text-gray-900 flex items-center gap-2 border-l-8 border-rose-600 pl-4">매니저별 월간 출근 현황</h3>
+                   <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+                      {Object.entries(monthlyStats.attend).map(([name, count]) => (
+                        <div key={name} className="bg-gray-50 p-4 rounded-2xl border-2 border-gray-100 flex flex-col items-center">
+                           <span className="text-xs font-black text-gray-400 mb-1">{name}</span>
+                           <span className={`text-2xl font-black ${count > 0 ? 'text-rose-600' : 'text-gray-300'}`}>{count}일</span>
+                        </div>
+                      ))}
+                   </div>
                 </div>
-                <div className="grid grid-cols-7 gap-1">{renderCalendar()}</div>
               </div>
             ) : (
               <div className="space-y-6">
+                {/* 리스트 필터 및 리포트 카드 (기존 코드 유지) */}
                 <div className="flex gap-2 overflow-x-auto pb-4 scrollbar-hide">
                   <button onClick={()=>setFilterType('ALL')} className={`px-5 py-3 rounded-2xl border-4 font-black text-sm whitespace-nowrap transition-all ${filterType==='ALL' ? 'bg-gray-900 text-white border-gray-900 shadow-lg' : 'bg-white border-gray-100 text-gray-400'}`}>전체보기</button>
-                  {Object.keys(monthlyStats.attend).map(name => (
+                  {managerList.map(name => (
                     <button key={name} onClick={()=>{setFilterType('WORKER');setFilterValue(name)}} className={`px-5 py-3 rounded-2xl border-4 font-black text-sm whitespace-nowrap transition-all ${filterType==='WORKER' && filterValue===name ? 'bg-gray-900 text-white border-gray-900 shadow-lg' : 'bg-white border-gray-100 text-gray-400'}`}>{name}</button>
                   ))}
                 </div>
@@ -464,13 +520,13 @@ export default function App() {
                   <div key={r.id} className="p-8 rounded-[40px] border-4 shadow-2xl bg-white border-gray-900">
                     <div className="flex justify-between items-start mb-6">
                       <div>
-                        <p className="text-[11px] font-black text-gray-400 mb-1 uppercase tracking-widest font-sans">{new Date(r.timestamp).toLocaleString('ko-KR')}</p>
+                        <p className="text-[11px] font-black text-gray-400 mb-1 uppercase tracking-widest font-sans font-sans">{new Date(r.timestamp).toLocaleString('ko-KR')}</p>
                         <p className="font-black text-2xl text-gray-900 tracking-tighter">{r.date} | {r.location}</p>
                       </div>
                       <span className={`px-5 py-2.5 rounded-full text-xs font-black text-white shadow-md ${r.location==='상행선'?'bg-red-600':'bg-blue-600'}`}>{r.worker}</span>
                     </div>
                     <div className="flex justify-between items-end border-t-4 border-gray-50 pt-6">
-                       <span className="text-xs font-black text-gray-500 uppercase tracking-widest font-sans">매출 합계</span>
+                       <span className="text-xs font-black text-gray-500 uppercase tracking-widest font-sans font-sans">매출 합계</span>
                        <span className="text-4xl font-black text-gray-900 tracking-tight">{Number(r.totalSales || 0).toLocaleString()}원</span>
                     </div>
                     
@@ -480,7 +536,6 @@ export default function App() {
 
                     {expandedReportId === r.id && (
                       <div className="mt-8 space-y-6 pt-8 border-t-4 border-dashed border-gray-100 animate-in fade-in zoom-in-95">
-                         {/* 수정 모드 */}
                          {editReportId === r.id ? (
                            <div className="space-y-4 bg-gray-50 p-6 rounded-3xl border-2 border-gray-200 shadow-inner">
                              <p className="text-xs font-black text-rose-600 uppercase mb-4">리포트 수정 모드</p>
@@ -517,25 +572,25 @@ export default function App() {
                            <>
                              <div className="grid grid-cols-2 gap-4">
                                 <div className="bg-gray-50 p-4 rounded-2xl border-2 border-gray-100">
-                                  <p className="text-[10px] font-black text-gray-400 mb-2 uppercase tracking-widest font-sans">매출 정보</p>
-                                  <div className="flex justify-between items-center mb-1">
+                                  <p className="text-[10px] font-black text-gray-400 mb-2 uppercase tracking-widest font-sans font-sans">매출 정보</p>
+                                  <div className="flex justify-between items-center mb-1 font-black text-gray-900">
                                     <span className="text-xs font-black text-gray-500">현금</span>
-                                    <span className="font-black text-gray-900">{Number(r.sales?.cash || 0).toLocaleString()}원</span>
+                                    <span>{Number(r.sales?.cash || 0).toLocaleString()}원</span>
                                   </div>
-                                  <div className="flex justify-between items-center">
+                                  <div className="flex justify-between items-center font-black text-gray-900">
                                     <span className="text-xs font-black text-gray-500">카드</span>
-                                    <span className="font-black text-gray-900">{Number(r.sales?.card || 0).toLocaleString()}원</span>
+                                    <span>{Number(r.sales?.card || 0).toLocaleString()}원</span>
                                   </div>
                                 </div>
                                 <div className="bg-gray-50 p-4 rounded-2xl border-2 border-gray-100">
-                                  <p className="text-[10px] font-black text-gray-400 mb-2 uppercase tracking-widest font-sans">재고 정보</p>
-                                  <div className="flex justify-between items-center mb-1">
+                                  <p className="text-[10px] font-black text-gray-400 mb-2 uppercase tracking-widest font-sans font-sans">재고 정보</p>
+                                  <div className="flex justify-between items-center mb-1 font-black text-gray-900">
                                     <span className="text-xs font-black text-gray-500">쌀 사용량</span>
-                                    <span className="font-black text-gray-900">{r.inventory?.usedRice || 0}kg</span>
+                                    <span>{r.inventory?.usedRice || 0}kg</span>
                                   </div>
-                                  <div className="flex justify-between items-center">
+                                  <div className="flex justify-between items-center font-black text-gray-900">
                                     <span className="text-xs font-black text-gray-500">재고 수량</span>
-                                    <span className="font-black text-gray-900">{r.inventory?.stockCount || 0}개</span>
+                                    <span>{r.inventory?.stockCount || 0}개</span>
                                   </div>
                                 </div>
                              </div>
@@ -548,11 +603,10 @@ export default function App() {
                              </div>
 
                              <div className="bg-gray-900 p-6 rounded-3xl text-white italic font-bold leading-relaxed shadow-xl">
-                               <p className="text-[10px] text-gray-400 mb-2 uppercase tracking-widest not-italic">매니저 전달사항</p>
+                               <p className="text-[10px] text-gray-400 mb-2 uppercase tracking-widest not-italic font-sans">매니저 전달사항</p>
                                "{r.notes || '전달사항 없음'}"
                              </div>
 
-                             {/* 증빙 사진 */}
                              <div className="grid grid-cols-5 gap-2">
                                {r.photos && Object.entries(r.photos).map(([key, url]) => (
                                  url && (
@@ -573,9 +627,6 @@ export default function App() {
                     )}
                   </div>
                 ))}
-                {filteredReports.length === 0 && (
-                   <div className="bg-white p-20 rounded-[40px] border-4 border-dashed border-gray-200 text-center font-black text-gray-300">제출된 리포트가 없습니다.</div>
-                )}
               </div>
             )}
           </div>
@@ -587,28 +638,24 @@ export default function App() {
       return (
         <div className="max-w-md mx-auto bg-white min-h-screen pb-40 font-sans animate-in fade-in">
           <header className="bg-white p-6 border-b-4 border-gray-900 flex justify-between items-center sticky top-0 z-20 shadow-md">
-            <button onClick={() => setIsMenuOpen(true)} className="p-3 bg-gray-100 rounded-2xl active:scale-90"><Menu size={24}/></button>
+            <button onClick={() => setIsMenuOpen(true)} className="p-3 bg-gray-100 rounded-2xl active:scale-90 transition-all"><Menu size={24}/></button>
             <h1 className="font-black text-gray-900 text-xl tracking-tight">하트뻥튀기 (처인휴게소)</h1>
             <div className="w-10"></div>
           </header>
           <div className="p-4 space-y-6">
             <div className="bg-white p-6 rounded-[36px] border-4 border-gray-900 shadow-xl space-y-4">
               <h2 className="text-sm font-black text-rose-600 border-l-8 border-rose-600 pl-3 uppercase">날짜별 공유사항</h2>
-              <textarea value={noticeInput} onChange={e=>setNoticeInput(e.target.value)} className="w-full bg-gray-100 rounded-2xl p-5 font-black text-gray-900 border-none outline-none shadow-inner focus:ring-4 ring-rose-100" rows={4} placeholder="모든 매니저가 볼 수 있는 내용을 남겨주세요..."/>
+              <textarea value={noticeInput} onChange={e=>setNoticeInput(e.target.value)} className="w-full bg-gray-100 rounded-2xl p-5 font-black text-gray-900 border-none outline-none shadow-inner focus:ring-4 ring-rose-100 font-sans" rows={4} placeholder="모든 매니저가 볼 수 있는 내용을 남겨주세요..."/>
               <button onClick={submitNotice} className="w-full py-5 bg-rose-600 text-white rounded-2xl font-black text-xl shadow-lg active:scale-95 transition-all">공유사항 등록</button>
             </div>
             <div className="space-y-4">
-               <h3 className="px-4 text-xs font-black text-gray-400 uppercase tracking-widest font-sans">최근 소식</h3>
                {notices.map(n => (
                  <div key={n.id} className="bg-white p-6 rounded-[32px] border-4 border-gray-900 shadow-md animate-in slide-in-from-bottom-2">
                     <div className="flex justify-between items-center mb-4">
-                       <div className="flex items-center gap-2">
-                          <span className="text-[10px] font-black text-rose-600 bg-rose-50 px-3 py-1 rounded-full border border-rose-100">{n.date}</span>
-                          <span className="text-[10px] font-black text-gray-400 flex items-center gap-1 font-sans"><Clock size={10}/> {formatTime(n.timestamp)}</span>
-                       </div>
-                       <button onClick={() => setDeleteConfirmId(n.id)} className="text-[10px] font-black text-gray-300 hover:text-red-500">삭제</button>
+                       <span className="text-[10px] font-black text-rose-600 bg-rose-50 px-3 py-1 rounded-full border border-rose-100 font-sans uppercase font-sans">{n.date}</span>
+                       <button onClick={() => setDeleteConfirmId(n.id)} className="text-[10px] font-black text-gray-300 hover:text-red-500 font-sans uppercase">DELETE</button>
                     </div>
-                    <p className="font-black text-gray-900 text-lg whitespace-pre-wrap leading-relaxed bg-gray-50/50 p-4 rounded-2xl border-2 border-gray-50">{n.content}</p>
+                    <p className="font-black text-gray-900 text-lg whitespace-pre-wrap leading-relaxed">{n.content}</p>
                  </div>
                ))}
             </div>
@@ -619,12 +666,10 @@ export default function App() {
 
     if (view === 'manual_open' || view === 'manual_close') {
       const isOpen = view === 'manual_open';
-      const manualItems = isOpen ? openManualItems : closeManualItems;
+      const items = isOpen ? openManualItems : closeManualItems;
       const checks = isOpen ? openChecks : closeChecks;
-      const toggleFn = isOpen ? toggleOpenManualCheck : toggleCloseManualCheck;
-      
-      const checkedCount = Object.values(checks).filter(Boolean).length;
-      const progress = Math.round((checkedCount / manualItems.length) * 100);
+      const toggle = (id) => isOpen ? setOpenChecks(p=>({...p,[id]:!p[id]})) : setCloseChecks(p=>({...p,[id]:!p[id]}));
+      const progress = Math.round((Object.values(checks).filter(Boolean).length / items.length) * 100);
 
       return (
         <div className="max-w-md mx-auto bg-white min-h-screen pb-40 font-sans animate-in fade-in">
@@ -633,58 +678,32 @@ export default function App() {
             <h1 className="font-black text-gray-900 text-xl tracking-tight">하트뻥튀기 (처인휴게소)</h1>
             <div className="w-10"></div>
           </header>
-          
           <div className="p-4 space-y-6">
             <div className="bg-white p-6 rounded-[44px] border-4 border-gray-900 shadow-xl space-y-6">
-              <div className="flex justify-between items-end">
-                <h2 className="text-sm font-black text-rose-600 border-l-8 border-rose-600 pl-4 uppercase font-sans tracking-widest">
-                  {isOpen ? '오픈 매뉴얼' : '마감 매뉴얼'}
-                </h2>
-                <span className="text-3xl font-black text-gray-900 font-sans">{progress}%</span>
+              <div className="flex justify-between items-end font-black">
+                <h2 className="text-sm text-rose-600 border-l-8 border-rose-600 pl-4 uppercase font-sans tracking-widest font-sans">{isOpen?'OPEN MANUAL':'CLOSE MANUAL'}</h2>
+                <span className="text-3xl font-sans font-sans">{progress}%</span>
               </div>
-              
-              {/* Progress Bar */}
               <div className="w-full h-6 bg-gray-100 rounded-full border-2 border-gray-900 overflow-hidden shadow-inner">
-                <div 
-                  className="h-full bg-rose-600 transition-all duration-500 ease-out" 
-                  style={{ width: `${progress}%` }}
-                />
+                <div className="h-full bg-rose-600 transition-all duration-500" style={{ width: `${progress}%` }} />
               </div>
-
               <div className="bg-rose-50 p-5 rounded-3xl border-2 border-rose-200">
-                <p className="text-sm font-black text-rose-800 leading-relaxed text-center italic">
-                  {isOpen 
-                    ? '"적혀있는 순서대로 오픈하기를 권장드립니다."'
-                    : '"깨끗한 매장을 위해 마감 수칙을 꼭 지켜주세요. 오늘도 수고하셨습니다."'
-                  }
+                <p className="text-sm font-black text-rose-800 leading-relaxed text-center italic font-sans">
+                  {isOpen ? '"적혀있는 순서대로 오픈하기를 권장드립니다."' : '"깨끗한 매장을 위해 마감 수칙을 꼭 지켜주세요."'}
                 </p>
               </div>
             </div>
-
             <div className="space-y-3">
-              {manualItems.map((item) => (
-                <button 
-                  key={item.id}
-                  onClick={() => toggleFn(item.id)}
-                  className={`w-full flex items-center gap-5 p-5 rounded-3xl border-4 transition-all duration-300 transform active:scale-[0.98] ${checks[item.id] ? 'bg-rose-50 border-rose-600 shadow-inner' : 'bg-white border-gray-100 shadow-lg'}`}
-                >
-                  <div className={`w-12 h-12 rounded-2xl flex items-center justify-center shadow-md flex-shrink-0 ${checks[item.id] ? 'bg-rose-600 text-white' : 'bg-gray-100'}`}>
-                    {checks[item.id] ? <CheckCircle2 size={28}/> : item.icon}
+              {items.map(it => (
+                <button key={it.id} onClick={()=>toggle(it.id)} className={`w-full flex items-center gap-5 p-5 rounded-3xl border-4 transition-all duration-300 transform active:scale-[0.98] ${checks[it.id] ? 'bg-rose-50 border-rose-600 shadow-inner' : 'bg-white border-gray-100 shadow-lg'}`}>
+                  <div className={`w-12 h-12 rounded-2xl flex items-center justify-center shadow-md flex-shrink-0 ${checks[it.id] ? 'bg-rose-600 text-white' : 'bg-gray-100'}`}>
+                    {checks[it.id] ? <CheckCircle2 size={28}/> : it.icon}
                   </div>
-                  <span className={`flex-1 text-left font-black text-lg leading-tight ${checks[item.id] ? 'text-rose-700 line-through opacity-60' : 'text-gray-900'}`}>
-                    {item.title}
-                  </span>
-                  {!checks[item.id] && <Circle size={28} className="text-gray-200 flex-shrink-0"/>}
+                  <span className={`flex-1 text-left font-black text-lg leading-tight ${checks[it.id] ? 'text-rose-700 line-through opacity-60' : 'text-gray-900 font-sans'}`}>{it.title}</span>
+                  {!checks[it.id] && <Circle size={28} className="text-gray-200 flex-shrink-0"/>}
                 </button>
               ))}
             </div>
-
-            {progress === 100 && (
-              <div className="bg-green-600 p-8 rounded-[44px] text-white text-center shadow-2xl animate-in zoom-in font-black space-y-2">
-                <h3 className="text-2xl">{isOpen ? '준비 완료! ✨' : '마감 완료! 🌙'}</h3>
-                <p className="opacity-80 font-sans uppercase">오늘도 힘내세요!</p>
-              </div>
-            )}
           </div>
         </div>
       );
@@ -696,7 +715,7 @@ export default function App() {
         <header className="bg-white p-6 border-b-4 border-gray-900 sticky top-0 z-20 flex flex-col gap-2 shadow-md">
           <div className="flex justify-between items-center">
             <button onClick={() => setIsMenuOpen(true)} className="p-3 bg-gray-100 rounded-2xl active:scale-90 transition-all"><Menu size={24}/></button>
-            <h1 className="font-black text-gray-900 text-lg sm:text-xl flex items-center gap-1 sm:gap-2 tracking-tight">❤️ 하트뻥튀기 (처인휴게소)</h1>
+            <h1 className="font-black text-gray-900 text-lg sm:text-xl flex items-center gap-1 sm:gap-2 tracking-tight font-sans">❤️ 하트뻥튀기 (처인휴게소)</h1>
             <div className="w-10"></div>
           </div>
         </header>
@@ -704,29 +723,30 @@ export default function App() {
         <div className="p-4 space-y-8 animate-in slide-in-from-bottom-4 duration-700">
           <div className="flex items-center gap-4 bg-gray-50 p-4 rounded-[28px] border-2 border-gray-900 mt-2 shadow-inner">
              <div className="flex-1 flex flex-col">
-                <span className="text-[10px] font-black text-gray-400 uppercase tracking-tighter mb-0.5 font-sans">오늘 날짜</span>
-                <input type="date" value={formData.date} onChange={e => setFormData({...formData, date: e.target.value})} className="text-base font-black text-gray-900 bg-transparent border-none p-0 focus:ring-0 cursor-pointer" />
+                <span className="text-[10px] font-black text-gray-400 uppercase tracking-tighter mb-0.5 font-sans font-sans">오늘 날짜</span>
+                <input type="date" value={formData.date} onChange={e => setFormData({...formData, date: e.target.value})} className="text-base font-black text-gray-900 bg-transparent border-none p-0 focus:ring-0 cursor-pointer font-sans" />
              </div>
              <div className="flex gap-3">
                 <div className="flex flex-col items-center">
-                   <span className="text-[9px] font-black text-gray-400 mb-1 font-sans">상행선</span>
-                   <span className={`text-[10px] font-black px-3 py-1 rounded-full border-2 transition-all duration-500 ${dailyStatus.상행선 === '제출완료' ? 'bg-green-600 text-white border-green-600 shadow-md' : 'bg-white text-gray-300 border-gray-200'}`}>{dailyStatus.상행선}</span>
+                   <span className="text-[9px] font-black text-gray-400 mb-1 font-sans font-sans">상행선</span>
+                   <span className={`text-[10px] font-black px-3 py-1 rounded-full border-2 transition-all duration-500 ${dailyStatus.상행선 === '제출완료' ? 'bg-green-600 text-white border-green-600 shadow-md font-sans' : 'bg-white text-gray-300 border-gray-200 font-sans'}`}>{dailyStatus.상행선}</span>
                 </div>
                 <div className="flex flex-col items-center">
-                   <span className="text-[9px] font-black text-gray-400 mb-1 font-sans">하행선</span>
-                   <span className={`text-[10px] font-black px-3 py-1 rounded-full border-2 transition-all duration-500 ${dailyStatus.하행선 === '제출완료' ? 'bg-green-600 text-white border-green-600 shadow-md' : 'bg-white text-gray-300 border-gray-200'}`}>{dailyStatus.하행선}</span>
+                   <span className="text-[9px] font-black text-gray-400 mb-1 font-sans font-sans">하행선</span>
+                   <span className={`text-[10px] font-black px-3 py-1 rounded-full border-2 transition-all duration-500 ${dailyStatus.하행선 === '제출완료' ? 'bg-green-600 text-white border-green-600 shadow-md font-sans' : 'bg-white text-gray-300 border-gray-200 font-sans'}`}>{dailyStatus.하행선}</span>
                 </div>
              </div>
           </div>
 
           <section className="bg-white p-6 rounded-[44px] border-4 border-gray-900 shadow-2xl space-y-6">
-            <h2 className="text-sm font-black text-gray-900 border-l-8 border-rose-600 pl-4 uppercase tracking-widest font-sans">1. 기본 정보 및 매출</h2>
+            <h2 className="text-sm font-black text-gray-900 border-l-8 border-rose-600 pl-4 uppercase tracking-widest font-sans font-sans">1. 기본 정보 및 매출</h2>
             <div className="space-y-6 pt-2">
                <div className="flex flex-col gap-3">
                   <div className="flex justify-between items-center">
                     <label className="text-lg font-black text-gray-900">근무 매니저</label>
-                    <select value={formData.worker} onChange={e=>setFormData({...formData, worker:e.target.value})} className="bg-gray-100 p-4 rounded-2xl text-base font-black border-none outline-none focus:ring-4 ring-rose-500 text-gray-900 shadow-inner">
-                      <option>정윤이</option><option>황진웅</option><option>최윤미</option><option>장유미</option><option>윤종규</option><option>직접입력</option>
+                    <select value={formData.worker} onChange={e=>setFormData({...formData, worker:e.target.value})} className="bg-gray-100 p-4 rounded-2xl text-base font-black border-none outline-none focus:ring-4 ring-rose-500 text-gray-900 shadow-inner font-sans">
+                      {managerList.map(m => <option key={m}>{m}</option>)}
+                      <option>직접입력</option>
                     </select>
                   </div>
                   {formData.worker === '직접입력' && (
@@ -735,7 +755,7 @@ export default function App() {
                       value={formData.customWorker} 
                       onChange={e=>setFormData({...formData, customWorker: e.target.value})} 
                       placeholder="이름을 입력해 주세요" 
-                      className="w-full p-4 bg-gray-100 rounded-2xl font-black text-gray-900 border-none outline-none shadow-inner focus:ring-4 ring-rose-300 animate-in slide-in-from-top-2"
+                      className="w-full p-4 bg-gray-100 rounded-2xl font-black text-gray-900 border-none outline-none shadow-inner focus:ring-4 ring-rose-300 animate-in slide-in-from-top-2 font-sans"
                     />
                   )}
                </div>
@@ -743,99 +763,131 @@ export default function App() {
                   <label className="text-lg font-black text-gray-900">영업 위치</label>
                   <div className="flex gap-3">
                     {['상행선','하행선'].map(l=>(
-                      <button key={l} onClick={()=>setFormData({...formData, location:l})} className={`px-7 py-4 rounded-2xl text-base font-black border-4 transition-all duration-300 active:scale-90 shadow-sm ${formData.location === l ? (l === '상행선' ? 'bg-red-600 border-red-600 text-white shadow-xl' : 'bg-blue-600 border-blue-600 text-white shadow-xl') : 'bg-white border-gray-100 text-gray-300'}`}>{l}</button>
+                      <button key={l} onClick={()=>setFormData({...formData, location:l})} className={`px-7 py-4 rounded-2xl text-base font-black border-4 transition-all duration-300 active:scale-90 shadow-sm font-sans ${formData.location === l ? (l === '상행선' ? 'bg-red-600 border-red-600 text-white shadow-xl font-sans' : 'bg-blue-600 border-blue-600 text-white shadow-xl font-sans') : 'bg-white border-gray-100 text-gray-300 font-sans'}`}>{l}</button>
                     ))}
                   </div>
                </div>
             </div>
             <div className="space-y-4 pt-8 border-t-2 border-dashed border-gray-100">
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-2 gap-4 font-black">
                 <div className="space-y-1">
-                  <label className="text-[11px] font-black text-gray-900 ml-1 uppercase font-sans">현금 매출</label>
-                  <input type="text" value={formatComma(formData.sales.cash)} onChange={e=>setFormData({...formData, sales:{...formData.sales, cash:parseComma(e.target.value)}})} className="w-full p-5 bg-gray-100 rounded-[28px] border-none outline-none font-black text-right text-gray-900 text-2xl shadow-inner focus:ring-4 ring-rose-200" placeholder="0" />
+                  <label className="text-[11px] text-gray-900 ml-1 uppercase font-sans">현금 매출</label>
+                  <input type="text" value={formatComma(formData.sales.cash)} onChange={e=>setFormData({...formData, sales:{...formData.sales, cash:parseComma(e.target.value)}})} className="w-full p-5 bg-gray-100 rounded-[28px] border-none outline-none font-black text-right text-gray-900 text-2xl shadow-inner focus:ring-4 ring-rose-200 font-sans font-sans" placeholder="0" />
                 </div>
                 <div className="space-y-1">
-                  <label className="text-[11px] font-black text-gray-900 ml-1 uppercase font-sans">카드 매출</label>
-                  <input type="text" value={formatComma(formData.sales.card)} onChange={e=>setFormData({...formData, sales:{...formData.sales, card:parseComma(e.target.value)}})} className="w-full p-5 bg-gray-100 rounded-[28px] border-none outline-none font-black text-right text-gray-900 text-2xl shadow-inner focus:ring-4 ring-rose-200" placeholder="0" />
+                  <label className="text-[11px] text-gray-900 ml-1 uppercase font-sans">카드 매출</label>
+                  <input type="text" value={formatComma(formData.sales.card)} onChange={e=>setFormData({...formData, sales:{...formData.sales, card:parseComma(e.target.value)}})} className="w-full p-5 bg-gray-100 rounded-[28px] border-none outline-none font-black text-right text-gray-900 text-2xl shadow-inner focus:ring-4 ring-rose-200 font-sans font-sans" placeholder="0" />
                 </div>
               </div>
-              <div className={`p-4 rounded-[28px] flex justify-between items-center text-white shadow-2xl transition-all duration-700 transform ${formData.location === '상행선' ? 'bg-red-600' : 'bg-blue-600'} hover:scale-[1.01]`}>
-                <span className="text-base font-black">오늘 마감 합계</span>
-                <span className="text-2xl font-black tracking-tight font-sans">{((Number(parseComma(formData.sales.cash))||0)+(Number(parseComma(formData.sales.card))||0)).toLocaleString()}원</span>
+              <div className={`p-4 rounded-[28px] flex justify-between items-center text-white shadow-2xl transition-all duration-700 transform ${formData.location === '상행선' ? 'bg-red-600 font-sans' : 'bg-blue-600 font-sans'} hover:scale-[1.01]`}>
+                <span className="text-sm font-black">오늘 마감 합계</span>
+                <span className="text-xl font-black tracking-tight font-sans font-sans">{((Number(parseComma(formData.sales.cash))||0)+(Number(parseComma(formData.sales.card))||0)).toLocaleString()}원</span>
               </div>
             </div>
           </section>
 
-          <section className="bg-white p-6 rounded-[44px] border-4 border-gray-900 shadow-2xl space-y-6">
-            <h2 className="text-sm font-black text-gray-900 border-l-8 border-rose-600 pl-4 uppercase tracking-widest font-sans">2. 마감 체크리스트</h2>
+          <section className="bg-white p-6 rounded-[44px] border-4 border-gray-900 shadow-2xl space-y-6 font-black">
+            <h2 className="text-sm text-gray-900 border-l-8 border-rose-600 pl-4 uppercase tracking-widest font-sans font-sans">2. 마감 체크리스트</h2>
             <div className="grid grid-cols-1 gap-3 pt-2">
               {Object.keys(checklistNames).map(k=>(
-                <button key={k} onClick={()=>handleChecklist(k)} className={`w-full flex justify-between py-5 px-7 items-center rounded-[28px] border-4 transition-all duration-200 transform active:scale-95 ${formData.checklist[k] ? 'bg-rose-50 border-rose-600 shadow-xl' : 'border-gray-50 bg-gray-50/50'}`}>
-                  <span className={`text-lg font-black transition-colors ${formData.checklist[k] ? 'text-rose-700' : 'text-gray-900'}`}>{checklistNames[k]}</span>
+                <button key={k} onClick={()=>handleChecklist(k)} className={`w-full flex justify-between py-5 px-7 items-center rounded-[28px] border-4 transition-all duration-200 transform active:scale-95 ${formData.checklist[k] ? 'bg-rose-50 border-rose-600 shadow-xl font-sans' : 'border-gray-50 bg-gray-50/50 font-sans'}`}>
+                  <span className={`text-lg font-black transition-colors ${formData.checklist[k] ? 'text-rose-700 font-sans' : 'text-gray-900 font-sans'}`}>{checklistNames[k]}</span>
                   {formData.checklist[k] ? <CheckCircle2 className="text-rose-600" size={32}/> : <Circle className="text-gray-200" size={32}/>}
                 </button>
               ))}
             </div>
           </section>
 
-          <section className="bg-white p-6 rounded-[44px] border-4 border-gray-900 shadow-2xl space-y-6">
-            <h2 className="text-sm font-black text-gray-900 border-l-8 border-rose-600 pl-4 uppercase tracking-widest font-sans">3. 재료 및 재고 현황</h2>
+          <section className="bg-white p-6 rounded-[44px] border-4 border-gray-900 shadow-2xl space-y-6 font-black">
+            <h2 className="text-sm text-gray-900 border-l-8 border-rose-600 pl-4 uppercase tracking-widest font-sans font-sans">3. 재료 및 재고 현황</h2>
             <div className="grid grid-cols-2 gap-4 pt-2">
               <div className="space-y-1">
-                <label className="text-[11px] font-black text-gray-900 ml-1 uppercase font-sans">재고 (개)</label>
-                <input type="number" value={formData.inventory.stockCount} onChange={e=>setFormData({...formData, inventory:{...formData.inventory, stockCount:e.target.value}})} className="w-full p-5 bg-gray-100 rounded-[28px] border-none outline-none font-black text-right text-gray-900 text-2xl shadow-inner focus:ring-4 ring-rose-200" placeholder="0" />
+                <label className="text-[11px] text-gray-900 ml-1 uppercase font-sans">재고 (개)</label>
+                <input type="number" value={formData.inventory.stockCount} onChange={e=>setFormData({...formData, inventory:{...formData.inventory, stockCount:e.target.value}})} className="w-full p-5 bg-gray-100 rounded-[28px] border-none outline-none font-black text-right text-gray-900 text-2xl shadow-inner focus:ring-4 ring-rose-200 font-sans font-sans" placeholder="0" />
               </div>
               <div className="space-y-1">
-                <label className="text-[11px] font-black text-gray-900 ml-1 uppercase font-sans">쌀 사용량 (kg)</label>
-                <input type="number" value={formData.inventory.usedRice} onChange={e=>setFormData({...formData, inventory:{...formData.inventory, usedRice:e.target.value}})} className="w-full p-5 bg-gray-100 rounded-[28px] border-none outline-none font-black text-right text-gray-900 text-2xl shadow-inner focus:ring-4 ring-rose-200" placeholder="0" />
+                <label className="text-[11px] text-gray-900 ml-1 uppercase font-sans">쌀 사용량 (kg)</label>
+                <input type="number" value={formData.inventory.usedRice} onChange={e=>setFormData({...formData, inventory:{...formData.inventory, usedRice:e.target.value}})} className="w-full p-5 bg-gray-100 rounded-[28px] border-none outline-none font-black text-right text-gray-900 text-2xl shadow-inner focus:ring-4 ring-rose-200 font-sans font-sans" placeholder="0" />
               </div>
             </div>
-            <div className="pt-8 border-t-2 border-dashed border-gray-100 space-y-5">
-              <p className="text-xl font-black text-gray-900 text-center leading-tight">내일 사용할 쌀이 충분한가요?<br/><span className="text-xs text-rose-500 font-bold tracking-tighter uppercase font-sans">(최소 1.5박스 확인)</span></p>
-              <div className="flex gap-4">
-                <button onClick={()=>setFormData({...formData, inventory:{...formData.inventory, hasRiceForNextDay:true, remainingRiceAmount: ''}})} className={`flex-1 py-6 rounded-[28px] font-black text-xl border-4 transition-all duration-300 transform active:scale-95 ${formData.inventory.hasRiceForNextDay===true?'bg-rose-600 border-rose-600 text-white shadow-2xl':'bg-white border-gray-100 text-gray-400'}`}>네, 충분함</button>
-                <button onClick={()=>setFormData({...formData, inventory:{...formData.inventory, hasRiceForNextDay:false}})} className={`flex-1 py-6 rounded-[28px] font-black text-xl border-4 transition-all duration-300 transform active:scale-95 ${formData.inventory.hasRiceForNextDay===false?'bg-gray-900 border-gray-900 text-white shadow-2xl':'bg-white border-gray-100 text-gray-400'}`}>아니오, 부족</button>
+            
+            <div className="pt-8 border-t-2 border-dashed border-gray-100 space-y-8 font-black">
+              {/* 쌀 충분 여부 */}
+              <div className="space-y-4">
+                <p className="text-lg font-black text-gray-900 text-center leading-tight">내일 사용할 쌀이 충분한가요?<br/><span className="text-xs text-rose-500 font-bold tracking-tighter uppercase font-sans">(최소 1.5박스 확인)</span></p>
+                <div className="flex gap-4">
+                  <button onClick={()=>setFormData({...formData, inventory:{...formData.inventory, hasRiceForNextDay:true, remainingRiceAmount: ''}})} className={`flex-1 py-6 rounded-[28px] font-black text-xl border-4 transition-all duration-300 transform active:scale-95 font-sans ${formData.inventory.hasRiceForNextDay===true?'bg-rose-600 border-rose-600 text-white shadow-2xl font-sans':'bg-white border-gray-100 text-gray-400 font-sans'}`}>네, 충분함</button>
+                  <button onClick={()=>setFormData({...formData, inventory:{...formData.inventory, hasRiceForNextDay:false}})} className={`flex-1 py-6 rounded-[28px] font-black text-xl border-4 transition-all duration-300 transform active:scale-95 font-sans ${formData.inventory.hasRiceForNextDay===false?'bg-gray-900 border-gray-900 text-white shadow-2xl font-sans':'bg-white border-gray-100 text-gray-400 font-sans'}`}>아니오, 부족</button>
+                </div>
               </div>
+
+              {/* 추가된 비닐/빵끈/기타 항목 */}
+              <div className="grid grid-cols-1 gap-6 pt-4 border-t border-gray-100">
+                {/* 포장 비닐 */}
+                <div className="space-y-3">
+                  <p className="text-base font-black text-gray-900 border-l-4 border-gray-900 pl-3">포장 비닐</p>
+                  <div className="flex gap-3 font-black">
+                    <button onClick={()=>setFormData({...formData, inventory:{...formData.inventory, bagStatus:'충분'}})} className={`flex-1 py-4 rounded-2xl border-4 transition-all font-black font-sans ${formData.inventory.bagStatus==='충분'?'bg-blue-600 border-blue-600 text-white shadow-lg':'bg-white border-gray-100 text-gray-300'}`}>충분함</button>
+                    <button onClick={()=>setFormData({...formData, inventory:{...formData.inventory, bagStatus:'부족'}})} className={`flex-1 py-4 rounded-2xl border-4 transition-all font-black font-sans ${formData.inventory.bagStatus==='부족'?'bg-red-600 border-red-600 text-white shadow-lg':'bg-white border-gray-100 text-gray-300'}`}>부족함</button>
+                  </div>
+                </div>
+
+                {/* 빵끈 */}
+                <div className="space-y-3">
+                  <p className="text-base font-black text-gray-900 border-l-4 border-gray-900 pl-3">빵끈</p>
+                  <div className="flex gap-3 font-black">
+                    <button onClick={()=>setFormData({...formData, inventory:{...formData.inventory, tieStatus:'충분'}})} className={`flex-1 py-4 rounded-2xl border-4 transition-all font-black font-sans ${formData.inventory.tieStatus==='충분'?'bg-blue-600 border-blue-600 text-white shadow-lg':'bg-white border-gray-100 text-gray-300'}`}>충분함</button>
+                    <button onClick={()=>setFormData({...formData, inventory:{...formData.inventory, tieStatus:'부족'}})} className={`flex-1 py-4 rounded-2xl border-4 transition-all font-black font-sans ${formData.inventory.tieStatus==='부족'?'bg-red-600 border-red-600 text-white shadow-lg':'bg-white border-gray-100 text-gray-300'}`}>부족함</button>
+                  </div>
+                </div>
+
+                {/* 기타 직접 입력 */}
+                <div className="space-y-3">
+                  <p className="text-base font-black text-gray-900 border-l-4 border-gray-900 pl-3">기타 (직접 입력)</p>
+                  <input type="text" value={formData.inventory.otherSupplies} onChange={e=>setFormData({...formData, inventory:{...formData.inventory, otherSupplies:e.target.value}})} className="w-full p-5 bg-gray-100 rounded-3xl border-none outline-none font-black text-gray-900 text-lg shadow-inner focus:ring-4 ring-rose-200 font-sans" placeholder="그 외 부족한 물품을 적어주세요..." />
+                </div>
+              </div>
+
               {formData.inventory.hasRiceForNextDay === false && (
-                  <div className="mt-4 p-6 bg-rose-50 rounded-[32px] border-4 border-rose-500 space-y-4 animate-in slide-in-from-top-6 duration-500 shadow-2xl">
-                      <label className="text-xl font-black text-rose-800 block">쌀 잔량 정보를 입력해 주세요</label>
-                      <input type="text" value={formData.inventory.remainingRiceAmount} onChange={e=>setFormData({...formData, inventory:{...formData.inventory, remainingRiceAmount: e.target.value}})} className="w-full p-5 bg-white rounded-2xl border-none outline-none font-black text-gray-900 text-2xl shadow-inner focus:ring-4 ring-rose-300 placeholder:text-gray-200" placeholder="예: 0.5박스 남았습니다" />
+                  <div className="mt-4 p-6 bg-rose-50 rounded-[32px] border-4 border-rose-500 space-y-4 animate-in slide-in-from-top-6 duration-500 shadow-2xl font-black">
+                      <label className="text-xl text-rose-800 block font-sans">쌀 잔량 정보를 입력해 주세요</label>
+                      <input type="text" value={formData.inventory.remainingRiceAmount} onChange={e=>setFormData({...formData, inventory:{...formData.inventory, remainingRiceAmount: e.target.value}})} className="w-full p-5 bg-white rounded-2xl border-none outline-none font-black text-gray-900 text-2xl shadow-inner focus:ring-4 ring-rose-300 placeholder:text-gray-200 font-sans" placeholder="예: 0.5박스 남았습니다" />
                   </div>
               )}
             </div>
           </section>
 
-          <section className="bg-white p-6 rounded-[44px] border-4 border-gray-900 shadow-2xl space-y-6">
+          <section className="bg-white p-6 rounded-[44px] border-4 border-gray-900 shadow-2xl space-y-6 font-black">
             <div className="flex justify-between items-center">
-              <h2 className="text-sm font-black text-gray-900 border-l-8 border-rose-600 pl-4 uppercase tracking-widest font-sans">4. 증빙 사진 촬영 (필수)</h2>
+              <h2 className="text-sm text-gray-900 border-l-8 border-rose-600 pl-4 uppercase tracking-widest font-sans font-sans">4. 증빙 사진 촬영 (필수)</h2>
               {isUploading && <Loader2 className="w-8 h-8 text-rose-600 animate-spin"/>}
             </div>
-            <div className="grid grid-cols-3 gap-4 pt-2">
+            <div className="grid grid-cols-3 gap-4 pt-2 font-black">
               {Object.keys(photoNames).map(p=>(
-                <label key={p} className={`aspect-square rounded-[36px] border-4 border-dashed flex flex-col items-center justify-center cursor-pointer overflow-hidden relative transition-all duration-200 transform active:scale-90 ${formData.photos[p] ? 'bg-gray-50 border-rose-500 shadow-2xl scale-[1.02]' : 'bg-gray-50 border-gray-200 hover:border-gray-900'}`}>
+                <label key={p} className={`aspect-square rounded-[36px] border-4 border-dashed flex flex-col items-center justify-center cursor-pointer overflow-hidden relative transition-all duration-200 transform active:scale-90 font-sans ${formData.photos[p] ? 'bg-gray-50 border-rose-500 shadow-2xl scale-[1.02] font-sans' : 'bg-gray-50 border-gray-200 hover:border-gray-900 font-sans'}`}>
                   <input type="file" accept="image/*" className="hidden" onChange={e=>handlePhotoChange(p, e)} disabled={isUploading} />
-                  {formData.photos[p] ? <img src={formData.photos[p]} className="w-full h-full object-cover" /> : <div className="flex flex-col items-center opacity-40"><Camera size={40} className="text-gray-900 mb-2"/><span className="text-[11px] font-black text-gray-900 uppercase tracking-tighter">{photoNames[p]}</span></div>}
+                  {formData.photos[p] ? <img src={formData.photos[p]} className="w-full h-full object-cover" /> : <div className="flex flex-col items-center opacity-40"><Camera size={40} className="text-gray-900 mb-2 font-sans"/><span className="text-[11px] text-gray-900 uppercase tracking-tighter font-sans">{photoNames[p]}</span></div>}
                   {formData.photos[p] && <div className="absolute inset-0 bg-rose-600/10 flex items-center justify-center animate-in zoom-in duration-300"><CheckCircle2 className="text-rose-600" size={56}/></div>}
                 </label>
               ))}
             </div>
           </section>
 
-          <section className="bg-white p-6 rounded-[44px] border-4 border-gray-900 shadow-2xl space-y-6">
-            <h2 className="text-sm font-black text-gray-900 border-l-8 border-rose-600 pl-4 uppercase tracking-widest font-sans">5. 대기 손님 파악</h2>
-            <div className="flex gap-4 pt-2">
-              <button onClick={()=>handleWaitingToggle(true)} className={`flex-1 py-7 rounded-[28px] font-black text-xl border-4 transition-all duration-300 transform active:scale-95 ${formData.waiting.hadWaiting===true?'bg-blue-600 border-blue-600 text-white shadow-2xl':'bg-white border-gray-100 text-gray-400'}`}>손님 있었음</button>
-              <button onClick={()=>handleWaitingToggle(false)} className={`flex-1 py-7 rounded-[28px] font-black text-xl border-4 transition-all duration-300 transform active:scale-95 ${formData.waiting.hadWaiting===false?'bg-gray-900 border-gray-900 text-white shadow-2xl':'bg-white border-gray-100 text-gray-400'}`}>없었음</button>
+          <section className="bg-white p-6 rounded-[44px] border-4 border-gray-900 shadow-2xl space-y-6 font-black">
+            <h2 className="text-sm text-gray-900 border-l-8 border-rose-600 pl-4 uppercase tracking-widest font-sans font-sans">5. 대기 손님 파악</h2>
+            <div className="flex gap-4 pt-2 font-black">
+              <button onClick={()=>handleWaitingToggle(true)} className={`flex-1 py-7 rounded-[28px] font-black text-xl border-4 transition-all duration-300 transform active:scale-95 font-sans ${formData.waiting.hadWaiting===true?'bg-blue-600 border-blue-600 text-white shadow-2xl font-sans font-sans':'bg-white border-gray-100 text-gray-400 font-sans font-sans'}`}>손님 있었음</button>
+              <button onClick={()=>handleWaitingToggle(false)} className={`flex-1 py-7 rounded-[28px] font-black text-xl border-4 transition-all duration-300 transform active:scale-95 font-sans ${formData.waiting.hadWaiting===false?'bg-gray-900 border-gray-900 text-white shadow-2xl font-sans font-sans':'bg-white border-gray-100 text-gray-400 font-sans font-sans'}`}>없었음</button>
             </div>
           </section>
 
-          <section className="bg-white p-6 rounded-[44px] border-4 border-gray-900 shadow-2xl space-y-4">
-            <h2 className="text-sm font-black text-gray-900 border-l-8 border-rose-600 pl-4 uppercase tracking-widest font-sans">6. 특이사항</h2>
-            <textarea rows="5" value={formData.notes} onChange={e=>setFormData({...formData, notes:e.target.value})} className="w-full bg-gray-100 rounded-[36px] p-8 border-none outline-none text-lg font-black text-gray-900 placeholder:text-gray-300 shadow-inner focus:ring-4 ring-rose-100" placeholder="사장님께 전달할 특별한 내용이 있다면 입력해 주세요..." />
+          <section className="bg-white p-6 rounded-[44px] border-4 border-gray-900 shadow-2xl space-y-4 font-black">
+            <h2 className="text-sm text-gray-900 border-l-8 border-rose-600 pl-4 uppercase tracking-widest font-sans font-sans">6. 특이사항</h2>
+            <textarea rows="5" value={formData.notes} onChange={e=>setFormData({...formData, notes:e.target.value})} className="w-full bg-gray-100 rounded-[36px] p-8 border-none outline-none text-lg font-black text-gray-900 placeholder:text-gray-300 shadow-inner focus:ring-4 ring-rose-100 font-sans" placeholder="사장님께 전달할 특별한 내용이 있다면 입력해 주세요..." />
           </section>
 
-          <div className="mt-12 p-5 pb-12 bg-white border-t-4 border-gray-900">
-            <button onClick={submitReport} disabled={isSubmitting || isUploading} className={`w-full py-7 rounded-[32px] font-black text-2xl text-white shadow-[0_15px_40px_rgba(225,29,72,0.3)] transition-all transform active:scale-95 flex items-center justify-center gap-4 ${isSubmitting||isUploading?'bg-gray-400 border-gray-400':'bg-rose-600 hover:bg-rose-700 border-rose-700'}`}>
+          <div className="mt-12 p-5 pb-12 bg-white border-t-4 border-gray-900 font-black">
+            <button onClick={submitReport} disabled={isSubmitting || isUploading} className={`w-full py-7 rounded-[32px] font-black text-2xl text-white shadow-[0_15px_40px_rgba(225,29,72,0.3)] transition-all transform active:scale-95 flex items-center justify-center gap-4 font-sans ${isSubmitting||isUploading?'bg-gray-400 border-gray-400 font-sans':'bg-rose-600 hover:bg-rose-700 border-rose-700 font-sans'}`}>
               {isSubmitting ? <Loader2 className="animate-spin" size={36}/> : null} {isSubmitting ? '보고서 전송 중...' : '업무공유 제출 완료하기'}
             </button>
           </div>
@@ -849,50 +901,50 @@ export default function App() {
       <NavigationMenu />
       {renderView()}
 
-      {/* --- Common Popups --- */}
+      {/* --- Common Popups (Success, Alert, Photo, Delete) --- */}
       {showSubmitModal && (
-        <div className="fixed inset-0 bg-black/95 z-[300] flex items-center justify-center p-8 backdrop-blur-2xl animate-in fade-in duration-300">
-          <div className="bg-white p-12 rounded-[64px] w-full text-center shadow-2xl border-[12px] border-gray-900 animate-in zoom-in duration-500">
-            <div className="bg-green-100 w-36 h-36 rounded-full flex items-center justify-center mx-auto mb-10 shadow-inner"><CheckCircle2 size={84} className="text-green-600"/></div>
-            <h3 className="text-4xl font-black mb-6 text-gray-900 tracking-tighter uppercase font-sans tracking-widest uppercase">SUCCESS</h3>
-            <p className="text-gray-500 mb-14 font-black text-2xl leading-relaxed">매니저님, 정말 고생 많으셨습니다!<br/>조심히 들어가세요. ✨</p>
-            <button onClick={() => { window.location.reload(); }} className="w-full bg-gray-900 text-white py-8 rounded-[36px] font-black text-2xl shadow-2xl hover:bg-black active:scale-95 transition-all uppercase tracking-widest font-sans">Main Return</button>
+        <div className="fixed inset-0 bg-black/95 z-[300] flex items-center justify-center p-8 backdrop-blur-2xl animate-in fade-in duration-300 font-black">
+          <div className="bg-white p-12 rounded-[64px] w-full text-center shadow-2xl border-[12px] border-gray-900 animate-in zoom-in duration-500 font-black">
+            <div className="bg-green-100 w-36 h-36 rounded-full flex items-center justify-center mx-auto mb-10 shadow-inner font-black"><CheckCircle2 size={84} className="text-green-600"/></div>
+            <h3 className="text-4xl font-black mb-6 text-gray-900 tracking-tighter uppercase font-sans tracking-widest uppercase font-sans">SUCCESS</h3>
+            <p className="text-gray-500 mb-14 font-black text-2xl leading-relaxed font-sans">매니저님, 정말 고생 많으셨습니다!<br/>조심히 들어가세요. ✨</p>
+            <button onClick={() => { window.location.reload(); }} className="w-full bg-gray-900 text-white py-8 rounded-[36px] font-black text-2xl shadow-2xl hover:bg-black active:scale-95 transition-all uppercase tracking-widest font-sans font-sans">Main Return</button>
           </div>
         </div>
       )}
 
       {alertMessage && (
-        <div className="fixed inset-0 bg-black/85 z-[310] flex items-center justify-center p-8 backdrop-blur-sm" onClick={()=>setAlertMessage('')}>
-          <div className="bg-white p-12 rounded-[56px] w-full text-center border-8 border-rose-600 shadow-2xl animate-in zoom-in-95 duration-300" onClick={e=>e.stopPropagation()}>
-            <div className="bg-amber-50 w-28 h-28 rounded-full flex items-center justify-center mx-auto mb-8 shadow-inner"><AlertCircle size={64} className="text-rose-600"/></div>
-            <p className="text-gray-900 font-black text-2xl mb-12 whitespace-pre-wrap leading-relaxed tracking-tight">{String(alertMessage)}</p>
-            <button onClick={()=>setAlertMessage('')} className="w-full bg-gray-900 text-white py-7 rounded-[32px] font-black text-2xl hover:bg-black active:scale-95 transition-all">확인 완료</button>
+        <div className="fixed inset-0 bg-black/85 z-[310] flex items-center justify-center p-8 backdrop-blur-sm font-black" onClick={()=>setAlertMessage('')}>
+          <div className="bg-white p-12 rounded-[56px] w-full text-center border-8 border-rose-600 shadow-2xl animate-in zoom-in-95 duration-300 font-black font-black" onClick={e=>e.stopPropagation()}>
+            <div className="bg-amber-50 w-28 h-28 rounded-full flex items-center justify-center mx-auto mb-8 shadow-inner font-black font-black"><AlertCircle size={64} className="text-rose-600"/></div>
+            <p className="text-gray-900 font-black text-2xl mb-12 whitespace-pre-wrap leading-relaxed tracking-tight font-sans font-sans font-sans">{String(alertMessage)}</p>
+            <button onClick={()=>setAlertMessage('')} className="w-full bg-gray-900 text-white py-7 rounded-[32px] font-black text-2xl hover:bg-black active:scale-95 transition-all font-sans font-sans">확인 완료</button>
           </div>
         </div>
       )}
 
       {selectedPhoto && (
-        <div className="fixed inset-0 bg-black/98 z-[100] flex flex-col items-center justify-center p-6 animate-in fade-in duration-300" onClick={()=>setSelectedPhoto(null)}>
-          <div className="absolute top-8 right-8 flex gap-8">
-             <a href={selectedPhoto.url} download={`하트뻥튀기_${selectedPhoto.date}_${selectedPhoto.name}.jpg`} className="p-5 bg-white/10 rounded-full text-white hover:bg-white/20 transition-colors shadow-2xl" onClick={e=>e.stopPropagation()}><Download size={36}/></a>
-             <button className="p-5 bg-white/10 rounded-full text-white hover:bg-white/20 transition-colors shadow-2xl"><X size={36}/></button>
+        <div className="fixed inset-0 bg-black/98 z-[100] flex flex-col items-center justify-center p-6 animate-in fade-in duration-300 font-black" onClick={()=>setSelectedPhoto(null)}>
+          <div className="absolute top-8 right-8 flex gap-8 font-black">
+             <a href={selectedPhoto.url} download={`하트뻥튀기_${selectedPhoto.date}_${selectedPhoto.name}.jpg`} className="p-5 bg-white/10 rounded-full text-white hover:bg-white/20 transition-colors shadow-2xl font-sans" onClick={e=>e.stopPropagation()}><Download size={36}/></a>
+             <button className="p-5 bg-white/10 rounded-full text-white hover:bg-white/20 transition-colors shadow-2xl font-sans"><X size={36}/></button>
           </div>
-          <img src={selectedPhoto.url} className="max-w-full max-h-[80vh] rounded-[40px] shadow-2xl border-4 border-white/20 animate-in zoom-in duration-500" />
-          <div className="text-center mt-10 text-white font-black animate-in slide-in-from-bottom-4">
-            <p className="text-4xl mb-3 tracking-tighter uppercase">{String(selectedPhoto.name)}</p>
-            <p className="text-gray-500 text-xl uppercase tracking-[0.2em]">{String(selectedPhoto.date)} | {String(selectedPhoto.worker)} MANAGER</p>
+          <img src={selectedPhoto.url} className="max-w-full max-h-[80vh] rounded-[40px] shadow-2xl border-4 border-white/20 animate-in zoom-in duration-500 font-black" />
+          <div className="text-center mt-10 text-white font-black animate-in slide-in-from-bottom-4 font-black">
+            <p className="text-4xl mb-3 tracking-tighter uppercase font-sans font-sans">{String(selectedPhoto.name)}</p>
+            <p className="text-gray-500 text-xl uppercase tracking-[0.2em] font-sans font-sans">{String(selectedPhoto.date)} | {String(selectedPhoto.worker)} MANAGER</p>
           </div>
         </div>
       )}
 
       {deleteConfirmId && (
-        <div className="fixed inset-0 bg-black/85 z-[200] flex items-center justify-center p-8 backdrop-blur-md animate-in fade-in duration-200">
-           <div className="bg-white p-12 rounded-[56px] w-full max-w-sm text-center border-[10px] border-red-600 shadow-2xl animate-in zoom-in-95 duration-300">
-              <div className="bg-red-50 w-28 h-28 rounded-full flex items-center justify-center mx-auto mb-8 shadow-inner"><AlertCircle size={64} className="text-red-600"/></div>
-              <p className="font-black text-gray-900 mb-12 text-3xl tracking-tight leading-tight">정말 이 항목을<br/>영구 삭제하시겠습니까?</p>
-              <div className="flex gap-4">
-                 <button onClick={()=>setDeleteConfirmId(null)} className="flex-1 py-6 bg-gray-100 rounded-[28px] font-black text-xl text-gray-500 hover:bg-gray-200 transition-colors">취소</button>
-                 <button onClick={()=>executeDelete(deleteConfirmId, view === 'notices' ? 'notices' : 'reports')} className="flex-1 py-6 bg-red-600 text-white rounded-[28px] font-black shadow-2xl hover:bg-red-700 active:scale-95 transition-all">삭제 승인</button>
+        <div className="fixed inset-0 bg-black/85 z-[200] flex items-center justify-center p-8 backdrop-blur-md animate-in fade-in duration-200 font-black">
+           <div className="bg-white p-12 rounded-[56px] w-full max-w-sm text-center border-[10px] border-red-600 shadow-2xl animate-in zoom-in-95 duration-300 font-black font-black">
+              <div className="bg-red-50 w-28 h-28 rounded-full flex items-center justify-center mx-auto mb-8 shadow-inner font-black font-black font-black"><AlertCircle size={64} className="text-red-600"/></div>
+              <p className="font-black text-gray-900 mb-12 text-3xl tracking-tight leading-tight font-sans font-sans">정말 이 항목을<br/>영구 삭제하시겠습니까?</p>
+              <div className="flex gap-4 font-black font-black">
+                 <button onClick={()=>setDeleteConfirmId(null)} className="flex-1 py-6 bg-gray-100 rounded-[28px] font-black text-xl text-gray-500 hover:bg-gray-200 transition-colors font-sans">취소</button>
+                 <button onClick={()=>executeDelete(deleteConfirmId, view === 'notices' ? 'notices' : 'reports')} className="flex-1 py-6 bg-red-600 text-white rounded-[28px] font-black shadow-2xl hover:bg-red-700 active:scale-95 transition-all font-sans font-sans">삭제 승인</button>
               </div>
            </div>
         </div>
