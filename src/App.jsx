@@ -156,14 +156,10 @@ export default function App() {
     return () => unsubscribe();
   }, []);
 
-  // --- 2. 매뉴얼 체크리스트 초기화 로직 (오픈/마감 통합) ---
+  // --- 2. 매뉴얼 체크리스트 초기화 로직 ---
   useEffect(() => {
-    if (view !== 'manual_open') {
-      setOpenChecks({});
-    }
-    if (view !== 'manual_close') {
-      setCloseChecks({});
-    }
+    if (view !== 'manual_open') setOpenChecks({});
+    if (view !== 'manual_close') setCloseChecks({});
   }, [view]);
 
   // --- Data Subscription ---
@@ -304,11 +300,8 @@ export default function App() {
 
   const filteredReports = useMemo(() => {
     let result = [...reports];
-    if (filterType === 'LOCATION') {
-      result = reports.filter(r => r.location === filterValue);
-    } else if (filterType === 'WORKER') {
-      result = reports.filter(r => r.worker === filterValue);
-    }
+    if (filterType === 'LOCATION') result = reports.filter(r => r.location === filterValue);
+    else if (filterType === 'WORKER') result = reports.filter(r => r.worker === filterValue);
     return result;
   }, [reports, filterType, filterValue]);
 
@@ -348,7 +341,7 @@ export default function App() {
     return days;
   };
 
-  // --- Views ---
+  // --- Navigation Menu ---
   const NavigationMenu = () => (
     <div className={`fixed inset-0 z-50 flex transition-opacity duration-300 ${isMenuOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'}`}>
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={() => setIsMenuOpen(false)} />
@@ -407,7 +400,7 @@ export default function App() {
             <div className="bg-white p-6 rounded-[40px] border-4 border-gray-900 shadow-xl space-y-6 animate-in slide-in-from-top-4">
               <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                  <div className="space-y-1">
-                    <h3 className="text-xs font-black text-gray-400 uppercase tracking-widest">{calendarDate.getMonth()+1}월 누적 매출</h3>
+                    <h3 className="text-xs font-black text-gray-400 uppercase tracking-widest font-sans">MONTHLY TOTAL SALES</h3>
                     <p className="text-5xl font-black text-rose-600 tracking-tight">{monthlyStats.total.toLocaleString()}원</p>
                  </div>
                  <button onClick={downloadCSV} className="bg-green-600 text-white px-6 py-4 rounded-2xl font-black text-sm flex items-center gap-2 active:scale-95 shadow-xl font-sans"><FileSpreadsheet size={20}/> 엑셀(CSV) 다운로드</button>
@@ -460,39 +453,36 @@ export default function App() {
                        <span className="text-xs font-black text-gray-500 uppercase tracking-widest font-sans">Calculated Sales</span>
                        <span className="text-4xl font-black text-gray-900 tracking-tight">{Number(r.totalSales || 0).toLocaleString()}원</span>
                     </div>
-                    
                     <button onClick={()=>setExpandedReportId(expandedReportId === r.id ? null : r.id)} className="w-full mt-6 py-5 bg-gray-900 text-white rounded-[24px] text-base font-black active:scale-95 flex items-center justify-center gap-2 shadow-xl">
                       {expandedReportId === r.id ? <ChevronUp/> : <ChevronDown/>} {expandedReportId === r.id ? '상세 닫기' : '상세 보기'}
                     </button>
-
                     {expandedReportId === r.id && (
                       <div className="mt-8 space-y-6 pt-8 border-t-4 border-dashed border-gray-100 animate-in fade-in zoom-in-95">
-                         {/* 수정 모드 */}
                          {editReportId === r.id ? (
                            <div className="space-y-4 bg-gray-50 p-6 rounded-3xl border-2 border-gray-200 shadow-inner">
-                             <p className="text-xs font-black text-rose-600 uppercase mb-4">Edit Report Mode</p>
+                             <p className="text-xs font-black text-rose-600 uppercase mb-4 font-sans">Edit Report Mode</p>
                              <div className="grid grid-cols-2 gap-4">
                                <div className="space-y-1">
-                                 <label className="text-[10px] font-black text-gray-400">현금 매출</label>
+                                 <label className="text-[10px] font-black text-gray-400 uppercase font-sans">CASH 현금</label>
                                  <input type="number" value={editData.sales?.cash || ''} onChange={e=>setEditData({...editData, sales:{...editData.sales, cash:e.target.value}})} className="w-full p-3 bg-white rounded-xl border-none font-black text-gray-900 text-right" />
                                </div>
                                <div className="space-y-1">
-                                 <label className="text-[10px] font-black text-gray-400">카드 매출</label>
+                                 <label className="text-[10px] font-black text-gray-400 uppercase font-sans">CARD 카드</label>
                                  <input type="number" value={editData.sales?.card || ''} onChange={e=>setEditData({...editData, sales:{...editData.sales, card:e.target.value}})} className="w-full p-3 bg-white rounded-xl border-none font-black text-gray-900 text-right" />
                                </div>
                              </div>
                              <div className="grid grid-cols-2 gap-4">
                                <div className="space-y-1">
-                                 <label className="text-[10px] font-black text-gray-400">사용한 쌀 (kg)</label>
+                                 <label className="text-[10px] font-black text-gray-400 uppercase font-sans">사용한 쌀 (kg)</label>
                                  <input type="number" value={editData.inventory?.usedRice || ''} onChange={e=>setEditData({...editData, inventory:{...editData.inventory, usedRice:e.target.value}})} className="w-full p-3 bg-white rounded-xl border-none font-black text-gray-900 text-right" />
                                </div>
                                <div className="space-y-1">
-                                 <label className="text-[10px] font-black text-gray-400">재고 (개)</label>
+                                 <label className="text-[10px] font-black text-gray-400 uppercase font-sans">재고 (개)</label>
                                  <input type="number" value={editData.inventory?.stockCount || ''} onChange={e=>setEditData({...editData, inventory:{...editData.inventory, stockCount:e.target.value}})} className="w-full p-3 bg-white rounded-xl border-none font-black text-gray-900 text-right" />
                                </div>
                              </div>
                              <div className="space-y-1">
-                               <label className="text-[10px] font-black text-gray-400">특이사항</label>
+                               <label className="text-[10px] font-black text-gray-400 font-sans uppercase">Notes</label>
                                <textarea value={editData.notes || ''} onChange={e=>setEditData({...editData, notes:e.target.value})} className="w-full p-3 bg-white rounded-xl border-none font-black text-gray-900" rows={3} />
                              </div>
                              <div className="flex gap-2 pt-2">
@@ -504,7 +494,7 @@ export default function App() {
                            <>
                              <div className="grid grid-cols-2 gap-4">
                                 <div className="bg-gray-50 p-4 rounded-2xl border-2 border-gray-100">
-                                  <p className="text-[10px] font-black text-gray-400 mb-2 uppercase tracking-widest">Revenue Info</p>
+                                  <p className="text-[10px] font-black text-gray-400 mb-2 uppercase tracking-widest font-sans">Revenue Info</p>
                                   <div className="flex justify-between items-center mb-1">
                                     <span className="text-xs font-black text-gray-500">현금</span>
                                     <span className="font-black text-gray-900">{Number(r.sales?.cash || 0).toLocaleString()}원</span>
@@ -515,7 +505,7 @@ export default function App() {
                                   </div>
                                 </div>
                                 <div className="bg-gray-50 p-4 rounded-2xl border-2 border-gray-100">
-                                  <p className="text-[10px] font-black text-gray-400 mb-2 uppercase tracking-widest">Inventory Info</p>
+                                  <p className="text-[10px] font-black text-gray-400 mb-2 uppercase tracking-widest font-sans">Inventory Info</p>
                                   <div className="flex justify-between items-center mb-1">
                                     <span className="text-xs font-black text-gray-500">쌀 사용량</span>
                                     <span className="font-black text-gray-900">{r.inventory?.usedRice || 0}kg</span>
@@ -526,20 +516,16 @@ export default function App() {
                                   </div>
                                 </div>
                              </div>
-
                              <div className={`p-5 rounded-2xl border-4 ${r.inventory?.hasRiceForNextDay ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}>
-                               <p className="text-[10px] font-black text-gray-400 mb-1 uppercase">Next Day Rice Status</p>
+                               <p className="text-[10px] font-black text-gray-400 mb-1 uppercase font-sans">Next Day Rice Status</p>
                                <p className={`font-black text-lg ${r.inventory?.hasRiceForNextDay ? 'text-green-700' : 'text-red-700'}`}>
                                  {r.inventory?.hasRiceForNextDay ? '충분함 (1.5박스 이상)' : `부족함 (남은양: ${r.inventory?.remainingRiceAmount || '미기입'})`}
                                </p>
                              </div>
-
                              <div className="bg-gray-900 p-6 rounded-3xl text-white italic font-bold leading-relaxed shadow-xl">
-                               <p className="text-[10px] text-gray-400 mb-2 uppercase tracking-widest not-italic">Manager Notes</p>
+                               <p className="text-[10px] text-gray-400 mb-2 uppercase tracking-widest not-italic font-sans">Manager Notes</p>
                                "{r.notes || '전달사항 없음'}"
                              </div>
-
-                             {/* 증빙 사진 */}
                              <div className="grid grid-cols-5 gap-2">
                                {r.photos && Object.entries(r.photos).map(([key, url]) => (
                                  url && (
@@ -549,10 +535,9 @@ export default function App() {
                                  )
                                ))}
                              </div>
-
                              <div className="flex gap-4 pt-4">
-                                <button onClick={()=>startEdit(r)} className="flex-1 py-5 bg-blue-600 text-white rounded-2xl font-black flex items-center justify-center gap-2 shadow-lg active:scale-95 transition-all"><Edit2 size={20}/> 리포트 수정</button>
-                                <button onClick={()=>setDeleteConfirmId(r.id)} className="flex-1 py-5 bg-red-600 text-white rounded-2xl font-black flex items-center justify-center gap-2 shadow-lg active:scale-95 transition-all"><Trash2 size={20}/> 리포트 삭제</button>
+                                <button onClick={()=>startEdit(r)} className="flex-1 py-5 bg-blue-600 text-white rounded-2xl font-black flex items-center justify-center gap-2 shadow-lg active:scale-95 transition-all font-sans uppercase"><Edit2 size={20}/> EDIT</button>
+                                <button onClick={()=>setDeleteConfirmId(r.id)} className="flex-1 py-5 bg-red-600 text-white rounded-2xl font-black flex items-center justify-center gap-2 shadow-lg active:scale-95 transition-all font-sans uppercase"><Trash2 size={20}/> DELETE</button>
                              </div>
                            </>
                          )}
@@ -561,7 +546,7 @@ export default function App() {
                   </div>
                 ))}
                 {filteredReports.length === 0 && (
-                   <div className="bg-white p-20 rounded-[40px] border-4 border-dashed border-gray-200 text-center font-black text-gray-300">제출된 리포트가 없습니다.</div>
+                   <div className="bg-white p-20 rounded-[40px] border-4 border-dashed border-gray-200 text-center font-black text-gray-300 font-sans uppercase">NO REPORTS FOUND</div>
                 )}
               </div>
             )}
@@ -593,7 +578,7 @@ export default function App() {
                           <span className="text-[10px] font-black text-rose-600 bg-rose-50 px-3 py-1 rounded-full border border-rose-100">{n.date}</span>
                           <span className="text-[10px] font-black text-gray-400 flex items-center gap-1 font-sans"><Clock size={10}/> {formatTime(n.timestamp)}</span>
                        </div>
-                       <button onClick={() => setDeleteConfirmId(n.id)} className="text-[10px] font-black text-gray-300 hover:text-red-500">삭제</button>
+                       <button onClick={() => setDeleteConfirmId(n.id)} className="text-[10px] font-black text-gray-300 hover:text-red-500 font-sans uppercase">DELETE</button>
                     </div>
                     <p className="font-black text-gray-900 text-lg whitespace-pre-wrap leading-relaxed bg-gray-50/50 p-4 rounded-2xl border-2 border-gray-50">{n.content}</p>
                  </div>
@@ -609,7 +594,6 @@ export default function App() {
       const manualItems = isOpen ? openManualItems : closeManualItems;
       const checks = isOpen ? openChecks : closeChecks;
       const toggleFn = isOpen ? toggleOpenManualCheck : toggleCloseManualCheck;
-      
       const checkedCount = Object.values(checks).filter(Boolean).length;
       const progress = Math.round((checkedCount / manualItems.length) * 100);
 
@@ -620,7 +604,6 @@ export default function App() {
             <h1 className="font-black text-gray-900 text-xl tracking-tight">하트뻥튀기 (처인휴게소)</h1>
             <div className="w-10"></div>
           </header>
-          
           <div className="p-4 space-y-6">
             <div className="bg-white p-6 rounded-[44px] border-4 border-gray-900 shadow-xl space-y-6">
               <div className="flex justify-between items-end">
@@ -629,32 +612,18 @@ export default function App() {
                 </h2>
                 <span className="text-3xl font-black text-gray-900 font-sans">{progress}%</span>
               </div>
-              
-              {/* Progress Bar */}
               <div className="w-full h-6 bg-gray-100 rounded-full border-2 border-gray-900 overflow-hidden shadow-inner">
-                <div 
-                  className="h-full bg-rose-600 transition-all duration-500 ease-out" 
-                  style={{ width: `${progress}%` }}
-                />
+                <div className="h-full bg-rose-600 transition-all duration-500 ease-out" style={{ width: `${progress}%` }} />
               </div>
-
               <div className="bg-rose-50 p-5 rounded-3xl border-2 border-rose-200">
                 <p className="text-sm font-black text-rose-800 leading-relaxed text-center italic">
-                  {isOpen 
-                    ? '"적혀있는 순서대로 오픈하기를 권장드립니다. 개인의 기호에 따라 편하신 대로 선택하셔도 됩니다."'
-                    : '"깨끗한 매장을 위해 마감 수칙을 꼭 지켜주세요. 오늘도 정말 고생 많으셨습니다."'
-                  }
+                  {isOpen ? '"적혀있는 순서대로 오픈하기를 권장드립니다. 개인의 기호에 따라 편하신 대로 선택하셔도 됩니다."' : '"깨끗한 매장을 위해 마감 수칙을 꼭 지켜주세요. 오늘도 정말 고생 많으셨습니다."'}
                 </p>
               </div>
             </div>
-
             <div className="space-y-3">
               {manualItems.map((item) => (
-                <button 
-                  key={item.id}
-                  onClick={() => toggleFn(item.id)}
-                  className={`w-full flex items-center gap-5 p-5 rounded-3xl border-4 transition-all duration-300 transform active:scale-[0.98] ${checks[item.id] ? 'bg-rose-50 border-rose-600 shadow-inner' : 'bg-white border-gray-100 shadow-lg'}`}
-                >
+                <button key={item.id} onClick={() => toggleFn(item.id)} className={`w-full flex items-center gap-5 p-5 rounded-3xl border-4 transition-all duration-300 transform active:scale-[0.98] ${checks[item.id] ? 'bg-rose-50 border-rose-600 shadow-inner' : 'bg-white border-gray-100 shadow-lg'}`}>
                   <div className={`w-12 h-12 rounded-2xl flex items-center justify-center shadow-md flex-shrink-0 ${checks[item.id] ? 'bg-rose-600 text-white' : 'bg-gray-100'}`}>
                     {checks[item.id] ? <CheckCircle2 size={28}/> : item.icon}
                   </div>
@@ -665,11 +634,10 @@ export default function App() {
                 </button>
               ))}
             </div>
-
             {progress === 100 && (
               <div className="bg-green-600 p-8 rounded-[44px] text-white text-center shadow-2xl animate-in zoom-in font-black space-y-2">
                 <h3 className="text-2xl">{isOpen ? '준비 완료! ✨' : '마감 완료! 🌙'}</h3>
-                <p className="opacity-80">{isOpen ? '오늘 하루도 화이팅입니다!' : '조심히 퇴근하세요!'}</p>
+                <p className="opacity-80 font-sans uppercase">{isOpen ? 'GOOD LUCK TODAY!' : 'HAVE A NICE REST!'}</p>
               </div>
             )}
           </div>
@@ -679,13 +647,17 @@ export default function App() {
 
     // --- Default: Report Form ---
     return (
-      <div className="max-w-md mx-auto bg-white min-h-screen pb-40 font-sans">
+      <div className="max-w-md mx-auto bg-white min-h-screen pb-20 font-sans">
         <header className="bg-white p-6 border-b-4 border-gray-900 sticky top-0 z-20 flex flex-col gap-2 shadow-md">
           <div className="flex justify-between items-center">
             <button onClick={() => setIsMenuOpen(true)} className="p-3 bg-gray-100 rounded-2xl active:scale-90 transition-all"><Menu size={24}/></button>
             <h1 className="font-black text-gray-900 text-lg sm:text-xl flex items-center gap-1 sm:gap-2 tracking-tight">❤️ 하트뻥튀기 (처인휴게소)</h1>
             <div className="w-10"></div>
           </div>
+        </header>
+
+        <div className="p-4 space-y-8 animate-in slide-in-from-bottom-4 duration-700">
+          {/* 💡 수정: 투데이 워크 데이트 고정 해제 (본문으로 이동) */}
           <div className="flex items-center gap-4 bg-gray-50 p-4 rounded-[28px] border-2 border-gray-900 mt-2 shadow-inner">
              <div className="flex-1 flex flex-col">
                 <span className="text-[10px] font-black text-gray-400 uppercase tracking-tighter mb-0.5 font-sans">TODAY WORK DATE</span>
@@ -693,18 +665,18 @@ export default function App() {
              </div>
              <div className="flex gap-3">
                 <div className="flex flex-col items-center">
-                   <span className="text-[9px] font-black text-gray-400 mb-1 uppercase font-sans">UP</span>
+                   {/* 💡 수정: UP -> 상행선 */}
+                   <span className="text-[9px] font-black text-gray-400 mb-1 font-sans">상행선</span>
                    <span className={`text-[10px] font-black px-3 py-1 rounded-full border-2 transition-all duration-500 ${dailyStatus.상행선 === '제출완료' ? 'bg-green-600 text-white border-green-600 shadow-md' : 'bg-white text-gray-300 border-gray-200'}`}>{dailyStatus.상행선}</span>
                 </div>
                 <div className="flex flex-col items-center">
-                   <span className="text-[9px] font-black text-gray-400 mb-1 uppercase font-sans">DOWN</span>
+                   {/* 💡 수정: DOWN -> 하행선 */}
+                   <span className="text-[9px] font-black text-gray-400 mb-1 font-sans">하행선</span>
                    <span className={`text-[10px] font-black px-3 py-1 rounded-full border-2 transition-all duration-500 ${dailyStatus.하행선 === '제출완료' ? 'bg-green-600 text-white border-green-600 shadow-md' : 'bg-white text-gray-300 border-gray-200'}`}>{dailyStatus.하행선}</span>
                 </div>
              </div>
           </div>
-        </header>
 
-        <div className="p-4 space-y-8 animate-in slide-in-from-bottom-4 duration-700">
           <section className="bg-white p-6 rounded-[44px] border-4 border-gray-900 shadow-2xl space-y-6">
             <h2 className="text-sm font-black text-gray-900 border-l-8 border-rose-600 pl-4 uppercase tracking-widest font-sans">1. 기본 정보 및 매출</h2>
             <div className="space-y-6 pt-2">
@@ -789,7 +761,7 @@ export default function App() {
               {Object.keys(photoNames).map(p=>(
                 <label key={p} className={`aspect-square rounded-[36px] border-4 border-dashed flex flex-col items-center justify-center cursor-pointer overflow-hidden relative transition-all duration-200 transform active:scale-90 ${formData.photos[p] ? 'bg-gray-50 border-rose-500 shadow-2xl scale-[1.02]' : 'bg-gray-50 border-gray-200 hover:border-gray-900'}`}>
                   <input type="file" accept="image/*" className="hidden" onChange={e=>handlePhotoChange(p, e)} disabled={isUploading} />
-                  {formData.photos[p] ? <img src={formData.photos[p]} className="w-full h-full object-cover" /> : <div className="flex flex-col items-center opacity-40"><Camera size={40} className="text-gray-900 mb-2"/><span className="text-[11px] font-black text-gray-900 uppercase tracking-tighter">{photoNames[p]}</span></div>}
+                  {formData.photos[p] ? <img src={formData.photos[p]} className="w-full h-full object-cover" /> : <div className="flex flex-col items-center opacity-40"><Camera size={40} className="text-gray-900 mb-2"/><span className="text-[11px] font-black text-gray-900 uppercase tracking-tighter uppercase font-sans">{photoNames[p]}</span></div>}
                   {formData.photos[p] && <div className="absolute inset-0 bg-rose-600/10 flex items-center justify-center animate-in zoom-in duration-300"><CheckCircle2 className="text-rose-600" size={56}/></div>}
                 </label>
               ))}
@@ -808,12 +780,12 @@ export default function App() {
             <h2 className="text-sm font-black text-gray-900 border-l-8 border-rose-600 pl-4 uppercase tracking-widest font-sans">6. 특이사항</h2>
             <textarea rows="5" value={formData.notes} onChange={e=>setFormData({...formData, notes:e.target.value})} className="w-full bg-gray-100 rounded-[36px] p-8 border-none outline-none text-lg font-black text-gray-900 placeholder:text-gray-300 shadow-inner focus:ring-4 ring-rose-100" placeholder="사장님께 전달할 특별한 내용이 있다면 입력해 주세요..." />
           </section>
-        </div>
 
-        <div className="fixed bottom-0 left-0 right-0 max-w-md mx-auto p-5 pb-12 bg-white/95 backdrop-blur-2xl border-t-4 border-gray-900 z-40">
-          <button onClick={submitReport} disabled={isSubmitting || isUploading} className={`w-full py-7 rounded-[32px] font-black text-2xl text-white shadow-[0_15px_40px_rgba(225,29,72,0.3)] transition-all transform active:scale-95 flex items-center justify-center gap-4 ${isSubmitting||isUploading?'bg-gray-400 border-gray-400':'bg-rose-600 hover:bg-rose-700 border-rose-700'}`}>
-            {isSubmitting ? <Loader2 className="animate-spin" size={36}/> : null} {isSubmitting ? '보고서 전송 중...' : '업무공유 제출 완료하기'}
-          </button>
+          <div className="mt-12 p-5 pb-12 bg-white border-t-4 border-gray-900">
+            <button onClick={submitReport} disabled={isSubmitting || isUploading} className={`w-full py-7 rounded-[32px] font-black text-2xl text-white shadow-[0_15px_40px_rgba(225,29,72,0.3)] transition-all transform active:scale-95 flex items-center justify-center gap-4 ${isSubmitting||isUploading?'bg-gray-400 border-gray-400':'bg-rose-600 hover:bg-rose-700 border-rose-700'}`}>
+              {isSubmitting ? <Loader2 className="animate-spin" size={36}/> : null} {isSubmitting ? '보고서 전송 중...' : '업무공유 제출 완료하기'}
+            </button>
+          </div>
         </div>
       </div>
     );
@@ -823,8 +795,6 @@ export default function App() {
     <>
       <NavigationMenu />
       {renderView()}
-
-      {/* --- Common Popups --- */}
       {showSubmitModal && (
         <div className="fixed inset-0 bg-black/95 z-[300] flex items-center justify-center p-8 backdrop-blur-2xl animate-in fade-in duration-300">
           <div className="bg-white p-12 rounded-[64px] w-full text-center shadow-2xl border-[12px] border-gray-900 animate-in zoom-in duration-500">
@@ -835,7 +805,6 @@ export default function App() {
           </div>
         </div>
       )}
-
       {alertMessage && (
         <div className="fixed inset-0 bg-black/85 z-[310] flex items-center justify-center p-8 backdrop-blur-sm" onClick={()=>setAlertMessage('')}>
           <div className="bg-white p-12 rounded-[56px] w-full text-center border-8 border-rose-600 shadow-2xl animate-in zoom-in-95 duration-300" onClick={e=>e.stopPropagation()}>
@@ -845,7 +814,6 @@ export default function App() {
           </div>
         </div>
       )}
-
       {selectedPhoto && (
         <div className="fixed inset-0 bg-black/98 z-[100] flex flex-col items-center justify-center p-6 animate-in fade-in duration-300" onClick={()=>setSelectedPhoto(null)}>
           <div className="absolute top-8 right-8 flex gap-8">
@@ -859,7 +827,6 @@ export default function App() {
           </div>
         </div>
       )}
-
       {deleteConfirmId && (
         <div className="fixed inset-0 bg-black/85 z-[200] flex items-center justify-center p-8 backdrop-blur-md animate-in fade-in duration-200">
            <div className="bg-white p-12 rounded-[56px] w-full max-w-sm text-center border-[10px] border-red-600 shadow-2xl animate-in zoom-in-95 duration-300">
