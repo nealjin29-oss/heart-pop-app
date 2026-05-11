@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { Camera, CheckCircle2, Circle, MapPin, Calendar, DollarSign, AlertCircle, FileText, User, Lock, Download, Image as ImageIcon, BarChart3, Users, LogOut, ChevronDown, ChevronUp, X, ChevronLeft, ChevronRight, CalendarDays, List, HelpCircle, Edit2, Trash2, Save, Maximize2, Loader2, FileSpreadsheet, TrendingUp, Menu, MessageSquare, BookOpen, Clock, Power, Key, Thermometer, Droplets, Wind, Package, Trash, Shirt, Box, Play, Layers, PiggyBank, CreditCard, Coins, ShoppingCart, Percent } from 'lucide-react';
+import { Camera, CheckCircle2, Circle, MapPin, Calendar, DollarSign, AlertCircle, FileText, User, Lock, Download, Image as ImageIcon, BarChart3, Users, LogOut, ChevronDown, ChevronUp, X, ChevronLeft, ChevronRight, CalendarDays, List, HelpCircle, Edit2, Trash2, Save, Maximize2, Loader2, FileSpreadsheet, TrendingUp, Menu, MessageSquare, BookOpen, Clock, Power, Key, Thermometer, Droplets, Wind, Package, Trash, Shirt, Box, Play, Layers, PiggyBank, CreditCard, Coins, ShoppingCart, Percent, UserPlus, UserMinus } from 'lucide-react';
 
 // === Firebase Database Integration ===
 import { initializeApp } from 'firebase/app';
@@ -37,10 +37,10 @@ const parseComma = (val) => {
   return val.toString().replace(/[^0-9]/g, '');
 };
 
-// --- UI Data Mappings ---
+// 고정 매니저 리스트
 const managerList = ['정윤이', '황진웅', '최윤미', '장유미', '윤종규'];
 
-// 매니저별 은은한 배경색 매핑
+// 매니저별 은은한 배경색 리스트
 const managerColorMap = {
   '정윤이': 'bg-rose-100 text-rose-700 border-rose-200',
   '황진웅': 'bg-blue-100 text-blue-700 border-blue-200',
@@ -48,6 +48,22 @@ const managerColorMap = {
   '장유미': 'bg-purple-100 text-purple-700 border-purple-200',
   '윤종규': 'bg-amber-100 text-amber-700 border-amber-200',
   'default': 'bg-gray-100 text-gray-700 border-gray-200'
+};
+
+const dynamicColors = [
+  'bg-cyan-100 text-cyan-700 border-cyan-200',
+  'bg-indigo-100 text-indigo-700 border-indigo-200',
+  'bg-orange-100 text-orange-700 border-orange-200',
+  'bg-fuchsia-100 text-fuchsia-700 border-fuchsia-200',
+  'bg-lime-100 text-lime-700 border-lime-200'
+];
+
+// 이름에 따른 고유 색상 배정 함수
+const getManagerColor = (name) => {
+  if (managerColorMap[name]) return managerColorMap[name];
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) hash += name.charCodeAt(i);
+  return dynamicColors[hash % dynamicColors.length];
 };
 
 const checklistNames = {
@@ -107,17 +123,21 @@ const formatTime = (isoString) => {
 export default function App() {
   // --- States ---
   const [user, setUser] = useState(null);
+  const [isAdmin, setIsAdmin] = useState(false); // 관리자 권한 상태 추가
   const [reports, setReports] = useState([]);
   const [notices, setNotices] = useState([]);
+  const [qnas, setQnas] = useState([]); // Q&A 상태 추가
   const [holidays, setHolidays] = useState([]);
-  const [schedules, setSchedules] = useState({}); // 스케쥴 상태 저장
+  const [schedules, setSchedules] = useState({});
+  const [dbManagers, setDbManagers] = useState([]); // 커스텀 추가된 매니저 상태
+  
   const [view, setView] = useState('form'); 
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [adminPwd, setAdminPwd] = useState('');
   const [filterType, setFilterType] = useState('ALL'); 
   const [filterValue, setFilterValue] = useState('');
   const [expandedReportId, setExpandedReportId] = useState(null);
-  const [adminViewMode, setAdminViewMode] = useState('list'); 
+  const [adminViewMode, setAdminViewMode] = useState('calendar'); // 탭 초기값: 집계 달력
   const [calendarDate, setCalendarDate] = useState(new Date()); 
   const [editReportId, setEditReportId] = useState(null);
   const [editData, setEditData] = useState(null);
@@ -128,8 +148,15 @@ export default function App() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [selectedPhoto, setSelectedPhoto] = useState(null);
   const [noticeInput, setNoticeInput] = useState('');
-  const [scheduleSelection, setScheduleSelection] = useState(null); // { date, location }
-  const [customScheduleWorker, setCustomScheduleWorker] = useState(''); // 스케쥴용 직접입력 상태
+  const [scheduleSelection, setScheduleSelection] = useState(null); 
+  const [customScheduleWorker, setCustomScheduleWorker] = useState('');
+  const [newManagerName, setNewManagerName] = useState('');
+  
+  // Q&A 폼용 상태
+  const [qnaQuestion, setQnaQuestion] = useState('');
+  const [qnaAuthor, setQnaAuthor] = useState('정윤이');
+  const [qnaReplyId, setQnaReplyId] = useState(null);
+  const [qnaReplyContent, setQnaReplyContent] = useState('');
 
   const [openChecks, setOpenChecks] = useState({});
   const [closeChecks, setCloseChecks] = useState({});
@@ -146,20 +173,29 @@ export default function App() {
       usedRice: '', 
       loss: '', 
       leftRice: '', 
-      hasRiceForNextDay: null, 
-      remainingRiceAmount: '',
+      riceAgreement: false, // 쌀 3박스 확인 동의 상태
       bagStatus: null,
       tieStatus: null,
       otherSupplies: ''
     },
-    supplies: { breadTieShort: false, plasticBagShort: false, gloveShort: false, earmuffShort: false, maskShort: false, extra: '' },
-    suppliesStock: { breadTieShort: '', plasticBagShort: '', gloveShort: '', earmuffShort: '', maskShort: '', extra: '' },
     photos: { riceBin: null, pot: null, desk: null, report: null, key: null },
     notes: '',
     waiting: { hadWaiting: null, lastNumber: '', missedTeams: '' }
   });
 
-  // --- 1. Authentication ---
+  // 통합 매니저 리스트 (고정 + DB 추가)
+  const allManagers = useMemo(() => {
+    return [...new Set([...managerList, ...dbManagers.map(m => m.name)])];
+  }, [dbManagers]);
+
+  // Q&A 작성자 기본값을 로드된 매니저의 첫번째로 설정
+  useEffect(() => {
+    if (allManagers.length > 0 && !qnaAuthor) {
+      setQnaAuthor(allManagers[0]);
+    }
+  }, [allManagers]);
+
+  // --- Authentication ---
   useEffect(() => {
     const initAuth = async () => {
       try {
@@ -187,8 +223,10 @@ export default function App() {
     if (!user) return;
     const reportsRef = collection(db, 'artifacts', appId, 'public', 'data', 'reports');
     const noticesRef = collection(db, 'artifacts', appId, 'public', 'data', 'notices');
+    const qnaRef = collection(db, 'artifacts', appId, 'public', 'data', 'qna');
     const holidaysRef = collection(db, 'artifacts', appId, 'public', 'data', 'holidays');
     const schedulesRef = collection(db, 'artifacts', appId, 'public', 'data', 'schedules');
+    const managersRef = collection(db, 'artifacts', appId, 'public', 'data', 'managers');
     
     const unsubReports = onSnapshot(reportsRef, (snapshot) => {
       const fetched = [];
@@ -204,6 +242,13 @@ export default function App() {
       setNotices(fetched);
     }, (err) => console.error(err));
 
+    const unsubQna = onSnapshot(qnaRef, (snapshot) => {
+      const fetched = [];
+      snapshot.forEach((doc) => fetched.push({ id: doc.id, ...doc.data() }));
+      fetched.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+      setQnas(fetched);
+    }, (err) => console.error(err));
+
     const unsubHolidays = onSnapshot(holidaysRef, (snapshot) => {
       const fetched = [];
       snapshot.forEach((doc) => fetched.push(doc.id));
@@ -212,13 +257,17 @@ export default function App() {
 
     const unsubSchedules = onSnapshot(schedulesRef, (snapshot) => {
       const fetched = {};
-      snapshot.forEach((doc) => {
-        fetched[doc.id] = doc.data().manager;
-      });
+      snapshot.forEach((doc) => fetched[doc.id] = doc.data().manager);
       setSchedules(fetched);
     }, (err) => console.error(err));
 
-    return () => { unsubReports(); unsubNotices(); unsubHolidays(); unsubSchedules(); };
+    const unsubManagers = onSnapshot(managersRef, (snapshot) => {
+      const fetched = [];
+      snapshot.forEach(doc => fetched.push({ id: doc.id, name: doc.data().name }));
+      setDbManagers(fetched);
+    }, (err) => console.error(err));
+
+    return () => { unsubReports(); unsubNotices(); unsubQna(); unsubHolidays(); unsubSchedules(); unsubManagers(); };
   }, [user]);
 
   // --- Handlers ---
@@ -227,7 +276,10 @@ export default function App() {
   };
 
   const handleWaitingToggle = (val) => {
-    setFormData(prev => ({ ...prev, waiting: { ...prev.waiting, hadWaiting: val } }));
+    setFormData(prev => ({
+      ...prev,
+      waiting: { ...prev.waiting, hadWaiting: val }
+    }));
   };
 
   const handlePhotoChange = (key, e) => {
@@ -259,6 +311,12 @@ export default function App() {
       return setAlertMessage("해당 일자는 휴무일로 설정되어 리포트를 제출할 수 없습니다.");
     }
     if (!formData.sales.cash || !formData.sales.card) return setAlertMessage("현금/카드 매출을 모두 입력해 주세요.");
+    
+    // 필수 확인 체크 (쌀 동의)
+    if (!formData.inventory.riceAgreement) {
+      return setAlertMessage("내일 사용할 쌀 확인 질문에 '예 알겠습니다.'를 체크해 주세요.");
+    }
+
     if (!user) return setAlertMessage("인증 중입니다. 잠시만 기다려 주세요.");
     setIsSubmitting(true);
     
@@ -288,6 +346,31 @@ export default function App() {
       setNoticeInput('');
       setAlertMessage("공유사항이 성공적으로 등록되었습니다.");
     } catch (e) { setAlertMessage("등록 실패: " + e.message); }
+  };
+
+  const submitQna = async () => {
+    if (!qnaQuestion.trim() || !user) return;
+    try {
+      await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'qna'), {
+        author: qnaAuthor || '정윤이', 
+        question: qnaQuestion, 
+        answer: null, 
+        timestamp: new Date().toISOString(), 
+        date: getTodayString()
+      });
+      setQnaQuestion('');
+      setAlertMessage("질문이 성공적으로 등록되었습니다.");
+    } catch (e) { setAlertMessage("등록 실패: " + e.message); }
+  };
+
+  const submitQnaReply = async (id) => {
+    if (!qnaReplyContent.trim() || !user) return;
+    try {
+      await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'qna', id), { answer: qnaReplyContent }, { merge: true });
+      setQnaReplyId(null);
+      setQnaReplyContent('');
+      setAlertMessage("답변이 등록되었습니다.");
+    } catch (e) { setAlertMessage("답변 실패: " + e.message); }
   };
 
   const toggleHoliday = async (dateStr) => {
@@ -324,7 +407,7 @@ export default function App() {
     if (!user) return;
     try {
       await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', colName, id));
-      if (colName === 'reports') setDeleteConfirmId(null);
+      setDeleteConfirmId(null);
     } catch (e) { setAlertMessage("삭제 오류: " + e.message); }
   };
 
@@ -350,12 +433,23 @@ export default function App() {
     } catch (e) { setAlertMessage("저장 오류: " + e.message); }
   };
 
-  const toggleOpenManualCheck = (id) => {
-    setOpenChecks(prev => ({ ...prev, [id]: !prev[id] }));
+  const toggleOpenManualCheck = (id) => setOpenChecks(prev => ({ ...prev, [id]: !prev[id] }));
+  const toggleCloseManualCheck = (id) => setCloseChecks(prev => ({ ...prev, [id]: !prev[id] }));
+
+  // --- Custom Manager Handlers ---
+  const handleAddManager = async () => {
+    if (!newManagerName.trim() || !user) return;
+    try {
+      await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'managers'), { name: newManagerName.trim(), timestamp: serverTimestamp() });
+      setNewManagerName('');
+    } catch (e) { setAlertMessage("추가 실패: " + e.message); }
   };
 
-  const toggleCloseManualCheck = (id) => {
-    setCloseChecks(prev => ({ ...prev, [id]: !prev[id] }));
+  const handleRemoveManager = async (id) => {
+    if (!user) return;
+    try {
+      await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'managers', id));
+    } catch (e) { setAlertMessage("삭제 실패: " + e.message); }
   };
 
   // --- Statistics ---
@@ -374,7 +468,7 @@ export default function App() {
     const sang = reports.filter(r => r.location === '상행선').reduce((s, r) => s + (Number(r.totalSales) || 0), 0);
     const ha = reports.filter(r => r.location === '하행선').reduce((s, r) => s + (Number(r.totalSales) || 0), 0);
     const commission = total * 0.4;
-    const profit = total - commission;
+    const profit = total * 0.6; // 사장님 60% 정산
     return { total, cash, card, sang, ha, commission, profit };
   }, [reports]);
 
@@ -382,7 +476,27 @@ export default function App() {
     const year = calendarDate.getFullYear();
     const month = calendarDate.getMonth();
     const mReports = reports.filter(r => { const d = new Date(r.date); return d.getFullYear() === year && d.getMonth() === month; });
+    
+    // Calculate daily total sales
+    const dailyMap = {};
+    mReports.forEach(r => {
+      if (!dailyMap[r.date]) dailyMap[r.date] = 0;
+      dailyMap[r.date] += (Number(r.totalSales) || 0);
+    });
+
+    // Extract valid days (exclude holidays and days with 0 sales)
+    let validDays = Object.keys(dailyMap).filter(date => !holidays.includes(date) && dailyMap[date] > 0);
+    let maxDay = null;
+    let minDay = null;
+
+    if (validDays.length > 0) {
+      validDays.sort((a, b) => dailyMap[b] - dailyMap[a]); // Sort descending by sales
+      maxDay = { date: validDays[0], sales: dailyMap[validDays[0]] };
+      minDay = { date: validDays[validDays.length - 1], sales: dailyMap[validDays[validDays.length - 1]] };
+    }
+
     const total = mReports.reduce((s, r) => s + (Number(r.totalSales) || 0), 0);
+    const profit = total * 0.6; // 사장님 60% 정산
     const sang = mReports.filter(r => r.location === '상행선').reduce((s, r) => s + (Number(r.totalSales) || 0), 0);
     const ha = mReports.filter(r => r.location === '하행선').reduce((s, r) => s + (Number(r.totalSales) || 0), 0);
     const cash = mReports.reduce((s, r) => s + (Number(r.sales?.cash) || 0), 0);
@@ -399,35 +513,9 @@ export default function App() {
 
     const avgRicePerDay = uniqueDaysCount > 0 ? (totalRice / uniqueDaysCount).toFixed(1) : 0;
     const cumulativeRiceCost = totalRice * 2500;
-
-    const attend = {};
-    managerList.forEach(name => attend[name] = 0);
-    mReports.forEach(r => { 
-      if (attend[r.worker] !== undefined) attend[r.worker] += 1;
-      else attend[r.worker] = (attend[r.worker] || 0) + 1;
-    });
     
-    return { total, sang, ha, attend, cash, card, cashPercent, cardPercent, avgRicePerDay, cumulativeRiceCost, workingDays: uniqueDaysCount, holidayCount: monthHolidaysCount };
+    return { total, profit, sang, ha, cash, card, cashPercent, cardPercent, avgRicePerDay, cumulativeRiceCost, workingDays: uniqueDaysCount, holidayCount: monthHolidaysCount, maxDay, minDay };
   }, [reports, calendarDate, holidays]);
-
-  // 스케쥴 달력용 월간 통계 계산
-  const scheduleAttendStats = useMemo(() => {
-    const year = calendarDate.getFullYear();
-    const month = calendarDate.getMonth();
-    const sangStats = {};
-    const haStats = {};
-
-    Object.entries(schedules).forEach(([id, manager]) => {
-      const [dateStr, location] = id.split('_');
-      const d = new Date(dateStr);
-      if (d.getFullYear() === year && d.getMonth() === month) {
-        if (location === '상행선') sangStats[manager] = (sangStats[manager] || 0) + 1;
-        else haStats[manager] = (haStats[manager] || 0) + 1;
-      }
-    });
-
-    return { 상행선: sangStats, 하행선: haStats };
-  }, [schedules, calendarDate]);
 
   const filteredReports = useMemo(() => {
     let result = [...reports];
@@ -454,6 +542,23 @@ export default function App() {
     link.click();
   };
 
+  const getScheduleSummary = (location) => {
+    const year = calendarDate.getFullYear();
+    const month = calendarDate.getMonth();
+    const summary = {};
+    
+    Object.entries(schedules).forEach(([key, manager]) => {
+       const [dateStr, loc] = key.split('_');
+       if (loc === location) {
+         const d = new Date(dateStr);
+         if (d.getFullYear() === year && d.getMonth() === month && !holidays.includes(dateStr)) {
+           summary[manager] = (summary[manager] || 0) + 1;
+         }
+       }
+    });
+    return Object.entries(summary).sort((a, b) => b[1] - a[1]);
+  };
+
   const renderCalendar = () => {
     const year = calendarDate.getFullYear();
     const month = calendarDate.getMonth();
@@ -463,24 +568,33 @@ export default function App() {
     for (let i = 0; i < firstDay; i++) days.push(<div key={`empty-${i}`} className="p-2"></div>);
     for (let d = 1; d <= daysInMonth; d++) {
       const dStr = `${year}-${String(month+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
-      const sales = reports.filter(r => r.date === dStr).reduce((sum, r) => sum + (Number(r.totalSales)||0), 0);
+      const dayReports = reports.filter(r => r.date === dStr);
+      const sangSales = dayReports.filter(r => r.location === '상행선').reduce((s, r) => s + (Number(r.totalSales)||0), 0);
+      const haSales = dayReports.filter(r => r.location === '하행선').reduce((s, r) => s + (Number(r.totalSales)||0), 0);
+      const sales = sangSales + haSales;
       const isHoliday = holidays.includes(dStr);
+      
       days.push(
         <div 
           key={d} 
           onClick={() => toggleHoliday(dStr)}
-          className={`p-1.5 border border-gray-200 min-h-[80px] flex flex-col rounded-lg cursor-pointer transition-all hover:scale-[1.03] ${dStr === getTodayString() ? 'bg-rose-50 border-rose-300' : isHoliday ? 'bg-gray-100 border-gray-300' : 'bg-white'}`}
+          className={`p-1.5 border border-gray-200 min-h-[90px] flex flex-col rounded-lg cursor-pointer transition-all hover:scale-[1.03] ${dStr === getTodayString() ? 'bg-rose-50 border-rose-300' : isHoliday ? 'bg-gray-100 border-gray-300' : 'bg-white'}`}
         >
           <span className={`text-xs font-black ${isHoliday ? 'text-gray-400' : 'text-gray-500'}`}>{d}</span>
-          {isHoliday && <span className="text-[10px] font-black text-gray-400 mt-1 uppercase tracking-tighter">휴무</span>}
-          {sales > 0 && !isHoliday && <span className="text-[10px] font-black text-rose-600 mt-auto text-right font-sans">{sales.toLocaleString()}</span>}
+          {isHoliday && <span className="text-[10px] font-black text-gray-400 mt-1 uppercase tracking-tighter text-center">휴무</span>}
+          {!isHoliday && (sangSales > 0 || haSales > 0) && (
+            <div className="mt-auto flex flex-col items-end space-y-[2px] pt-1">
+              {sangSales > 0 && <span className="text-[8px] font-black text-red-600 leading-none">상:{formatComma(sangSales)}</span>}
+              {haSales > 0 && <span className="text-[8px] font-black text-blue-600 leading-none">하:{formatComma(haSales)}</span>}
+              <span className="text-[9px] font-black text-gray-900 border-t border-gray-200 pt-[2px] mt-[2px] w-full text-right leading-none">합:{formatComma(sales)}</span>
+            </div>
+          )}
         </div>
       );
     }
     return days;
   };
 
-  // 근무자 배정용 달력 렌더링 함수 (휴무 연동 추가)
   const renderScheduleCalendar = (location) => {
     const year = calendarDate.getFullYear();
     const month = calendarDate.getMonth();
@@ -497,14 +611,14 @@ export default function App() {
         <div 
           key={d} 
           onClick={() => !isHoliday && setScheduleSelection({ date: dStr, location })}
-          className={`p-1.5 border border-gray-200 min-h-[70px] flex flex-col rounded-lg transition-all ${isHoliday ? 'bg-gray-50 border-gray-100 cursor-not-allowed opacity-50' : 'cursor-pointer hover:border-gray-900 bg-white active:scale-95'}`}
+          className={`p-1 border border-gray-200 min-h-[70px] flex flex-col rounded-lg transition-all ${isHoliday ? 'bg-gray-50 border-gray-100 cursor-not-allowed opacity-50' : 'cursor-pointer hover:border-gray-900 bg-white active:scale-95'}`}
         >
           <span className={`text-xs font-black ${isHoliday ? 'text-gray-300' : 'text-gray-400'}`}>{d}</span>
           {isHoliday && (
              <div className="mt-auto bg-gray-200 text-gray-400 p-1 rounded text-center text-[10px] font-black font-sans uppercase">휴무</div>
           )}
           {!isHoliday && assignedManager && (
-            <div className={`mt-auto p-1 rounded text-center text-[10px] font-black animate-in fade-in zoom-in font-sans border ${managerColorMap[assignedManager] || managerColorMap['default']}`}>
+            <div className={`mt-auto px-0 py-[2px] rounded text-center text-[9px] font-black animate-in fade-in zoom-in font-sans border whitespace-nowrap overflow-hidden text-ellipsis tracking-tighter ${getManagerColor(assignedManager)}`}>
               {assignedManager}
             </div>
           )}
@@ -527,6 +641,9 @@ export default function App() {
           </button>
           <button onClick={() => { setView('notices'); setIsMenuOpen(false); }} className={`w-full flex items-center gap-3 p-4 rounded-2xl font-black transition-all ${view === 'notices' ? 'bg-rose-600 text-white shadow-lg' : 'text-gray-600 hover:bg-gray-100'}`}>
             <MessageSquare size={20}/> 날짜별 공유사항
+          </button>
+          <button onClick={() => { setView('qna'); setIsMenuOpen(false); }} className={`w-full flex items-center gap-3 p-4 rounded-2xl font-black transition-all ${view === 'qna' ? 'bg-rose-600 text-white shadow-lg' : 'text-gray-600 hover:bg-gray-100'}`}>
+            <HelpCircle size={20}/> 질문과 답변 (Q&A)
           </button>
           <div className="pt-4 pb-2 px-4 text-[10px] font-black text-gray-400 uppercase tracking-widest font-sans font-black">Manuals</div>
           <button onClick={() => { setView('manual_open'); setIsMenuOpen(false); }} className={`w-full flex items-center gap-3 p-4 rounded-2xl font-black transition-all ${view === 'manual_open' ? 'bg-rose-600 text-white shadow-lg' : 'text-gray-600 hover:bg-gray-100'}`}>
@@ -554,7 +671,7 @@ export default function App() {
         <div className="max-w-md mx-auto min-h-screen flex items-center justify-center p-4 bg-white font-sans font-black">
           <div className="bg-white p-8 rounded-2xl shadow-2xl w-full border-2 border-gray-900 text-center font-black">
             <h2 className="text-2xl font-black mb-8 text-gray-900">관리자 보안 접속</h2>
-            <form onSubmit={(e) => { e.preventDefault(); if (adminPwd === '940329') { setView('admin'); setAdminPwd(''); } else setAlertMessage('인증 암호가 일치하지 않습니다.'); }} className="space-y-6">
+            <form onSubmit={(e) => { e.preventDefault(); if (adminPwd === '940329') { setView('admin'); setIsAdmin(true); setAdminPwd(''); } else setAlertMessage('인증 암호가 일치하지 않습니다.'); }} className="space-y-6">
               <input type="password" autoFocus value={adminPwd} onChange={e=>setAdminPwd(e.target.value)} className="w-full p-5 bg-gray-100 rounded-xl border-none outline-none text-center text-3xl font-black focus:ring-4 ring-rose-500 text-gray-900 shadow-inner" placeholder="••••••" />
               <button type="submit" className="w-full bg-gray-900 text-white py-5 rounded-xl font-black text-xl active:scale-95 transition-transform font-black">인증하기</button>
             </form>
@@ -569,14 +686,15 @@ export default function App() {
         <div className="max-w-4xl mx-auto bg-white min-h-screen pb-32 font-sans font-black">
           <header className="bg-white p-6 sticky top-0 z-30 border-b-4 border-gray-900 flex justify-between items-center shadow-lg font-black font-black">
             <h1 className="font-black text-xl flex items-center gap-2 text-gray-900"><BarChart3 className="text-rose-600"/> 하트뻥튀기 (처인휴게소)</h1>
-            <button onClick={()=>setView('form')} className="p-3 bg-gray-100 rounded-full hover:bg-gray-200 transition-colors"><LogOut size={24} className="text-gray-900"/></button>
+            <button onClick={()=>{setView('form'); setIsAdmin(false);}} className="p-3 bg-gray-100 rounded-full hover:bg-gray-200 transition-colors"><LogOut size={24} className="text-gray-900"/></button>
           </header>
           <div className="p-4 space-y-8 font-black font-black">
             <div className="bg-white p-6 rounded-[40px] border-4 border-gray-900 shadow-xl space-y-6 animate-in slide-in-from-top-4 font-black">
               <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                  <div className="space-y-1">
                     <h3 className="text-xs font-black text-gray-400 uppercase tracking-widest font-sans font-black">월간 누적 매출</h3>
-                    <p className="text-5xl font-black text-rose-600 tracking-tight">{monthlyStats.total.toLocaleString()}원</p>
+                    <p className="text-5xl font-black text-rose-600 tracking-tight leading-none">{monthlyStats.total.toLocaleString()}원</p>
+                    <p className="text-sm font-black text-gray-400 mt-2 font-sans tracking-tight">💰 정산 예정 금액 (60%): {(monthlyStats.total * 0.6).toLocaleString()}원</p>
                  </div>
                  <button onClick={downloadCSV} className="bg-green-600 text-white px-6 py-4 rounded-2xl font-black text-sm flex items-center gap-2 active:scale-95 shadow-xl font-sans"><FileSpreadsheet size={20}/> 엑셀(CSV) 다운로드</button>
               </div>
@@ -613,9 +731,10 @@ export default function App() {
             </div>
 
             <div className="flex bg-gray-100 p-2 rounded-[32px] border-2 border-gray-200 font-black">
-              <button onClick={()=>setAdminViewMode('list')} className={`flex-1 py-4 rounded-2xl text-sm font-black transition-all ${adminViewMode==='list'?'bg-white shadow-xl text-gray-900':'text-gray-500'}`}>리포트 목록</button>
+              {/* 집계 달력을 첫 번째 탭으로 스위칭 */}
               <button onClick={()=>setAdminViewMode('calendar')} className={`flex-1 py-4 rounded-2xl text-sm font-black transition-all ${adminViewMode==='calendar'?'bg-white shadow-xl text-gray-900':'text-gray-500'}`}>집계 달력</button>
-              <button onClick={()=>setAdminViewMode('sales')} className={`flex-1 py-4 rounded-2xl text-sm font-black transition-all ${adminViewMode==='sales'?'bg-white shadow-xl text-gray-900':'text-gray-500'}`}>매출 관리</button>
+              <button onClick={()=>setAdminViewMode('list')} className={`flex-1 py-4 rounded-2xl text-sm font-black transition-all ${adminViewMode==='list'?'bg-white shadow-xl text-gray-900':'text-gray-500'}`}>리포트 목록</button>
+              <button onClick={()=>setAdminViewMode('sales')} className={`flex-1 py-4 rounded-2xl text-sm font-black transition-all ${adminViewMode==='sales'?'bg-white shadow-xl text-gray-900':'text-gray-500'}`}>매출 및 매니저</button>
             </div>
 
             {adminViewMode === 'calendar' && (
@@ -642,23 +761,76 @@ export default function App() {
                        <span className="text-3xl font-black text-gray-600 font-sans font-black">{monthlyStats.holidayCount}일</span>
                     </div>
                   </div>
-                </div>
-                <div className="bg-white p-8 rounded-[40px] border-4 border-gray-900 shadow-xl space-y-6 animate-in slide-in-from-bottom-4 font-black">
-                   <h3 className="text-xl font-black text-gray-900 flex items-center gap-2 border-l-8 border-rose-600 pl-4 font-black">매니저별 월간 출근 현황</h3>
-                   <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
-                      {Object.entries(monthlyStats.attend).map(([name, count]) => (
-                        <div key={name} className="bg-gray-50 p-4 rounded-2xl border-2 border-gray-100 flex flex-col items-center">
-                           <span className="text-xs font-black text-gray-400 mb-1 font-black">{name}</span>
-                           <span className={`text-2xl font-black ${count > 0 ? 'text-rose-600' : 'text-gray-300'}`}>{count}일</span>
-                        </div>
-                      ))}
-                   </div>
+
+                  <div className="mt-4 grid grid-cols-2 gap-4 font-black">
+                    <div className="bg-blue-50 p-6 rounded-3xl border-2 border-blue-100 flex flex-col items-center">
+                       <span className="text-[10px] font-black text-blue-400 mb-1 uppercase tracking-widest">월 최고 매출일</span>
+                       {monthlyStats.maxDay ? (
+                         <>
+                           <span className="text-xl font-black text-blue-700 font-sans tracking-tighter">{monthlyStats.maxDay.date.split('-').slice(1).join('/')}</span>
+                           <span className="text-2xl font-black text-blue-600 font-sans">{monthlyStats.maxDay.sales.toLocaleString()}원</span>
+                         </>
+                       ) : (
+                         <span className="text-sm font-black text-blue-300 mt-2">데이터 없음</span>
+                       )}
+                    </div>
+                    <div className="bg-orange-50 p-6 rounded-3xl border-2 border-orange-100 flex flex-col items-center">
+                       <span className="text-[10px] font-black text-orange-400 mb-1 uppercase tracking-widest">월 최저 매출일</span>
+                       {monthlyStats.minDay ? (
+                         <>
+                           <span className="text-xl font-black text-orange-700 font-sans tracking-tighter">{monthlyStats.minDay.date.split('-').slice(1).join('/')}</span>
+                           <span className="text-2xl font-black text-orange-600 font-sans">{monthlyStats.minDay.sales.toLocaleString()}원</span>
+                         </>
+                       ) : (
+                         <span className="text-sm font-black text-orange-300 mt-2">데이터 없음</span>
+                       )}
+                    </div>
+                  </div>
                 </div>
               </div>
             )}
 
             {adminViewMode === 'sales' && (
               <div className="space-y-6 animate-in fade-in font-black font-black">
+                 {/* 매니저 이름 추가 및 삭제 패널 */}
+                 <div className="bg-white p-8 rounded-[48px] border-4 border-gray-900 shadow-2xl space-y-6">
+                    <h3 className="text-xl font-black text-gray-900 border-l-8 border-rose-600 pl-4 py-1">매니저 명단 관리</h3>
+                    <div className="flex gap-3">
+                       <input 
+                         type="text" 
+                         value={newManagerName} 
+                         onChange={e=>setNewManagerName(e.target.value)} 
+                         className="flex-1 p-5 bg-gray-100 rounded-3xl border-none outline-none font-black text-gray-900 shadow-inner" 
+                         placeholder="새로운 매니저 이름 입력" 
+                       />
+                       <button onClick={handleAddManager} className="px-8 py-5 bg-gray-900 text-white rounded-3xl font-black flex items-center gap-2 active:scale-95">
+                          <UserPlus size={20}/> 추가
+                       </button>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-4">
+                       {/* 기본 매니저 렌더링 */}
+                       {managerList.map(m => (
+                          <div key={m} className="flex justify-between items-center p-4 bg-gray-50 rounded-2xl border-2 border-gray-100">
+                             <div className="flex items-center gap-3">
+                                <div className={`w-3 h-3 rounded-full ${getManagerColor(m)} border`}></div>
+                                <span className="font-black text-gray-600">{m} <span className="text-[10px] text-gray-400 ml-1">(기본)</span></span>
+                             </div>
+                          </div>
+                       ))}
+                       {/* DB 추가 매니저 렌더링 */}
+                       {dbManagers.map(m => (
+                          <div key={m.id} className="flex justify-between items-center p-4 bg-white rounded-2xl border-2 border-gray-900 shadow-sm">
+                             <div className="flex items-center gap-3">
+                                <div className={`w-3 h-3 rounded-full ${getManagerColor(m.name)} border`}></div>
+                                <span className="font-black text-gray-900">{m.name}</span>
+                             </div>
+                             <button onClick={()=>handleRemoveManager(m.id)} className="p-2 text-gray-300 hover:text-red-500 transition-colors"><UserMinus size={18}/></button>
+                          </div>
+                       ))}
+                    </div>
+                    <p className="text-[10px] text-gray-400 italic text-center">* 여기서 추가된 이름은 업무보고 작성 폼과 스케쥴 배정 목록에 자동으로 나타납니다.</p>
+                 </div>
+
                  <div className="bg-white p-10 rounded-[56px] border-4 border-gray-900 shadow-2xl space-y-12">
                     <div className="text-center space-y-4">
                        <div className="inline-flex items-center gap-3 bg-rose-50 text-rose-600 px-6 py-2 rounded-full border border-rose-200 font-black text-sm uppercase tracking-widest font-black"><TrendingUp size={18}/> 시스템 전체 기간 매출 통계</div>
@@ -712,7 +884,7 @@ export default function App() {
               <div className="space-y-6 font-black">
                 <div className="flex gap-2 overflow-x-auto pb-4 scrollbar-hide">
                   <button onClick={()=>setFilterType('ALL')} className={`px-5 py-3 rounded-2xl border-4 font-black text-sm whitespace-nowrap transition-all ${filterType==='ALL' ? 'bg-gray-900 text-white border-gray-900 shadow-lg' : 'bg-white border-gray-100 text-gray-400'}`}>전체보기</button>
-                  {managerList.map(name => (
+                  {allManagers.map(name => (
                     <button key={name} onClick={()=>{setFilterType('WORKER');setFilterValue(name)}} className={`px-5 py-3 rounded-2xl border-4 font-black text-sm whitespace-nowrap transition-all ${filterType==='WORKER' && filterValue===name ? 'bg-gray-900 text-white border-gray-900 shadow-lg' : 'bg-white border-gray-100 text-gray-400'}`}>{name}</button>
                   ))}
                 </div>
@@ -792,10 +964,10 @@ export default function App() {
                                   </div>
                                 </div>
                              </div>
-                             <div className={`p-5 rounded-2xl border-4 ${r.inventory?.hasRiceForNextDay ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'} font-black`}>
+                             <div className={`p-5 rounded-2xl border-4 ${r.inventory?.hasRiceForNextDay !== false ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'} font-black`}>
                                <p className="text-[10px] text-gray-400 mb-1 uppercase font-black">익일 쌀 상태</p>
-                               <p className={`text-lg font-black ${r.inventory?.hasRiceForNextDay ? 'text-green-700' : 'text-red-700'}`}>
-                                 {r.inventory?.hasRiceForNextDay ? '충분함 (1.5박스 이상)' : `부족함 (남은양: ${r.inventory?.remainingRiceAmount || '미기입'})`}
+                               <p className={`text-lg font-black ${r.inventory?.hasRiceForNextDay !== false ? 'text-green-700' : 'text-red-700'}`}>
+                                 {r.inventory?.hasRiceForNextDay !== false ? '확인됨 (충분)' : `부족함 (남은양: ${r.inventory?.remainingRiceAmount || '미기입'})`}
                                </p>
                              </div>
                              <div className="bg-gray-900 p-6 rounded-3xl text-white italic leading-relaxed shadow-xl font-black">
@@ -853,6 +1025,73 @@ export default function App() {
                        <button onClick={() => setDeleteConfirmId(n.id)} className="text-[10px] font-black text-gray-300 hover:text-red-500 font-black">삭제</button>
                     </div>
                     <p className="font-black text-gray-900 text-lg whitespace-pre-wrap leading-relaxed bg-gray-50/50 p-4 rounded-2xl border-2 border-gray-50 font-black">{n.content}</p>
+                 </div>
+               ))}
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    if (view === 'qna') {
+      return (
+        <div className="max-w-md mx-auto bg-white min-h-screen pb-40 font-sans animate-in fade-in font-black">
+          <header className="bg-white p-6 border-b-4 border-gray-900 flex justify-between items-center sticky top-0 z-20 shadow-md">
+            <button onClick={() => setIsMenuOpen(true)} className="p-3 bg-gray-100 rounded-2xl active:scale-90 font-black"><Menu size={24}/></button>
+            <h1 className="font-black text-gray-900 text-xl tracking-tight">질문과 답변 (Q&A)</h1>
+            <div className="w-10"></div>
+          </header>
+          <div className="p-4 space-y-6 font-black">
+            <div className="bg-white p-6 rounded-[36px] border-4 border-gray-900 shadow-xl space-y-4">
+              <h2 className="text-sm font-black text-rose-600 border-l-8 border-rose-600 pl-3 uppercase tracking-widest font-black">새로운 질문 남기기</h2>
+              <div className="bg-gray-50 rounded-2xl border-2 border-gray-100 p-2 flex flex-col gap-2 shadow-inner">
+                <select value={qnaAuthor} onChange={e=>setQnaAuthor(e.target.value)} className="w-full p-3 bg-white rounded-xl border-none outline-none font-black text-gray-900 shadow-sm text-sm">
+                  {allManagers.map(m => <option key={m} value={m}>{m} 매니저</option>)}
+                </select>
+                <textarea value={qnaQuestion} onChange={e=>setQnaQuestion(e.target.value)} className="w-full bg-transparent p-3 font-black text-gray-900 border-none outline-none" rows={3} placeholder="궁금한 점을 자유롭게 남겨주세요... (예: 포장 비닐은 어디에 있나요?)"/>
+              </div>
+              <button onClick={submitQna} className="w-full py-5 bg-rose-600 text-white rounded-2xl font-black text-xl shadow-lg active:scale-95 transition-all">질문 등록하기</button>
+            </div>
+            
+            <div className="space-y-4 font-black">
+               {qnas.map(q => (
+                 <div key={q.id} className="bg-white p-6 rounded-[32px] border-4 border-gray-900 shadow-md animate-in slide-in-from-bottom-2 font-black">
+                    <div className="flex justify-between items-center mb-4">
+                       <div className="flex items-center gap-2">
+                          <span className="text-[10px] font-black text-rose-600 bg-rose-50 px-3 py-1 rounded-full border border-rose-100">{q.author}</span>
+                          <span className="text-[10px] font-black text-gray-400 flex items-center gap-1"><Clock size={10}/> {formatTime(q.timestamp)}</span>
+                       </div>
+                       {isAdmin && <button onClick={() => setDeleteConfirmId(q.id)} className="text-[10px] font-black text-red-500">삭제</button>}
+                    </div>
+                    <p className="font-black text-gray-900 text-lg whitespace-pre-wrap leading-relaxed px-1">{q.question}</p>
+                    
+                    {/* 답변 영역 */}
+                    <div className="mt-5 pt-5 border-t-2 border-dashed border-gray-100">
+                      {q.answer ? (
+                        <div className="bg-blue-50 p-5 rounded-2xl border-2 border-blue-100 shadow-inner">
+                          <p className="text-[11px] font-black text-blue-600 mb-2 flex items-center gap-1 uppercase tracking-widest"><CheckCircle2 size={14}/> 관리자 답변</p>
+                          <p className="font-black text-blue-900 whitespace-pre-wrap text-base">{q.answer}</p>
+                        </div>
+                      ) : (
+                        isAdmin ? (
+                          qnaReplyId === q.id ? (
+                            <div className="space-y-3 bg-gray-50 p-4 rounded-2xl border-2 border-gray-200">
+                              <textarea value={qnaReplyContent} onChange={e=>setQnaReplyContent(e.target.value)} className="w-full bg-white rounded-xl p-4 font-black text-sm text-gray-900 border-none outline-none shadow-inner focus:ring-2 ring-blue-300" rows={3} placeholder="답변 내용을 입력하세요..."/>
+                              <div className="flex gap-2">
+                                 <button onClick={()=>submitQnaReply(q.id)} className="flex-1 bg-blue-600 text-white py-3 rounded-xl text-sm font-black shadow-md">답변 등록</button>
+                                 <button onClick={()=>setQnaReplyId(null)} className="flex-1 bg-gray-300 text-gray-700 py-3 rounded-xl text-sm font-black">취소</button>
+                              </div>
+                            </div>
+                          ) : (
+                            <button onClick={()=>{setQnaReplyId(q.id); setQnaReplyContent('');}} className="w-full py-4 bg-gray-100 text-gray-600 rounded-2xl text-sm font-black hover:bg-gray-200 border-2 border-gray-200 transition-colors">관리자 답변 달기</button>
+                          )
+                        ) : (
+                          <div className="bg-gray-50 p-4 rounded-2xl border-2 border-gray-100 text-center">
+                            <p className="text-xs font-black text-gray-400 flex items-center justify-center gap-2"><Clock size={14}/> 관리자 답변 대기중입니다.</p>
+                          </div>
+                        )
+                      )}
+                    </div>
                  </div>
                ))}
             </div>
@@ -941,18 +1180,21 @@ export default function App() {
                   {['SUN','MON','TUE','WED','THU','FRI','SAT'].map(d=><div key={d}>{d}</div>)}
                 </div>
                 <div className="grid grid-cols-7 gap-1">{renderScheduleCalendar('상행선')}</div>
-              </div>
-              <div className="bg-gray-50 p-6 rounded-[28px] border-2 border-gray-100 font-black space-y-3">
-                 <h4 className="text-[10px] text-gray-400 uppercase tracking-widest text-center mb-2 font-sans font-black">상행선 월간 배정 현황</h4>
-                 <div className="grid grid-cols-3 gap-2">
-                    {Object.entries(scheduleAttendStats.상행선).map(([name, count]) => (
-                       <div key={name} className={`p-2 rounded-xl border-2 text-center text-xs ${managerColorMap[name] || managerColorMap['default']}`}>
-                          <span className="block opacity-60 mb-0.5">{name}</span>
-                          <span className="font-black">{count}일</span>
-                       </div>
-                    ))}
-                    {Object.keys(scheduleAttendStats.상행선).length === 0 && <p className="col-span-3 text-center text-gray-300 text-[10px]">배정된 스케쥴이 없습니다.</p>}
-                 </div>
+                
+                {/* --- ADDED FEATURE 2 --- */}
+                <div className="mt-6 pt-4 border-t-2 border-dashed border-gray-100">
+                  <h4 className="text-[10px] font-black text-gray-400 mb-3 uppercase tracking-tighter">이번 달 상행선 근무 일수 요약</h4>
+                  <div className="flex flex-wrap gap-2">
+                    {getScheduleSummary('상행선').length > 0 ? getScheduleSummary('상행선').map(([mgr, count]) => (
+                      <div key={mgr} className={`px-3 py-2 rounded-xl text-xs font-black border-2 flex items-center gap-2 ${getManagerColor(mgr)}`}>
+                        <span>{mgr}</span>
+                        <span className="bg-white/80 px-2 py-0.5 rounded-lg shadow-sm">{count}일</span>
+                      </div>
+                    )) : (
+                      <span className="text-xs text-gray-400 font-black px-2">배정된 근무자가 없습니다.</span>
+                    )}
+                  </div>
+                </div>
               </div>
             </div>
 
@@ -966,18 +1208,21 @@ export default function App() {
                   {['SUN','MON','TUE','WED','THU','FRI','SAT'].map(d=><div key={d}>{d}</div>)}
                 </div>
                 <div className="grid grid-cols-7 gap-1">{renderScheduleCalendar('하행선')}</div>
-              </div>
-              <div className="bg-gray-50 p-6 rounded-[28px] border-2 border-gray-100 font-black space-y-3">
-                 <h4 className="text-[10px] text-gray-400 uppercase tracking-widest text-center mb-2 font-sans font-black">하행선 월간 배정 현황</h4>
-                 <div className="grid grid-cols-3 gap-2">
-                    {Object.entries(scheduleAttendStats.하행선).map(([name, count]) => (
-                       <div key={name} className={`p-2 rounded-xl border-2 text-center text-xs ${managerColorMap[name] || managerColorMap['default']}`}>
-                          <span className="block opacity-60 mb-0.5">{name}</span>
-                          <span className="font-black">{count}일</span>
-                       </div>
-                    ))}
-                    {Object.keys(scheduleAttendStats.하행선).length === 0 && <p className="col-span-3 text-center text-gray-300 text-[10px]">배정된 스케쥴이 없습니다.</p>}
-                 </div>
+
+                {/* --- ADDED FEATURE 2 --- */}
+                <div className="mt-6 pt-4 border-t-2 border-dashed border-gray-100">
+                  <h4 className="text-[10px] font-black text-gray-400 mb-3 uppercase tracking-tighter">이번 달 하행선 근무 일수 요약</h4>
+                  <div className="flex flex-wrap gap-2">
+                    {getScheduleSummary('하행선').length > 0 ? getScheduleSummary('하행선').map(([mgr, count]) => (
+                      <div key={mgr} className={`px-3 py-2 rounded-xl text-xs font-black border-2 flex items-center gap-2 ${getManagerColor(mgr)}`}>
+                        <span>{mgr}</span>
+                        <span className="bg-white/80 px-2 py-0.5 rounded-lg shadow-sm">{count}일</span>
+                      </div>
+                    )) : (
+                      <span className="text-xs text-gray-400 font-black px-2">배정된 근무자가 없습니다.</span>
+                    )}
+                  </div>
+                </div>
               </div>
             </div>
           </div>
@@ -994,8 +1239,8 @@ export default function App() {
                   <button onClick={()=>setScheduleSelection(null)} className="p-3 bg-gray-100 rounded-2xl"><X size={24}/></button>
                 </div>
                 <div className="grid grid-cols-2 gap-3 mb-6">
-                  {managerList.map(m => (
-                    <button key={m} onClick={() => assignWorkerToSchedule(m)} className={`py-5 rounded-3xl border-4 transition-all font-black text-sm ${managerColorMap[m] || 'bg-gray-50 border-gray-100'}`}>
+                  {allManagers.map(m => (
+                    <button key={m} onClick={() => assignWorkerToSchedule(m)} className={`py-5 rounded-3xl border-4 transition-all font-black text-sm ${getManagerColor(m)}`}>
                       {m}
                     </button>
                   ))}
@@ -1060,7 +1305,7 @@ export default function App() {
                <div className="flex flex-col gap-4 font-black">
                   <label className="text-lg text-gray-900 font-black font-black">근무 매니저</label>
                   <div className="grid grid-cols-3 gap-2 font-black font-black">
-                    {managerList.map(m => (
+                    {allManagers.map(m => (
                       <button 
                         key={m} 
                         onClick={() => setFormData({...formData, worker: m})} 
@@ -1135,14 +1380,23 @@ export default function App() {
                 <input type="number" value={formData.inventory.loss} onChange={e=>setFormData({...formData, inventory:{...formData.inventory, loss:e.target.value}})} className="w-full p-4 bg-gray-100 rounded-[24px] border-none outline-none font-black text-right text-gray-900 text-xl shadow-inner focus:ring-4 ring-rose-200" placeholder="0" />
               </div>
             </div>
+            
             <div className="pt-8 border-t-2 border-dashed border-gray-100 space-y-8 font-black font-black">
-              <div className="space-y-4">
-                <p className="text-lg text-gray-900 text-center leading-tight">내일 사용할 쌀이 충분한가요?<br/><span className="text-xs text-rose-500 font-bold tracking-tighter uppercase font-sans font-black">(최소 1.5박스 확인)</span></p>
-                <div className="flex gap-4">
-                  <button onClick={()=>setFormData({...formData, inventory:{...formData.inventory, hasRiceForNextDay:true, remainingRiceAmount: ''}})} className={`flex-1 py-6 rounded-[28px] font-black text-xl border-4 transition-all duration-300 transform active:scale-95 ${formData.inventory.hasRiceForNextDay===true?'bg-rose-600 border-rose-600 text-white shadow-2xl':'bg-white border-gray-100 text-gray-400'} font-black`}>네, 충분함</button>
-                  <button onClick={()=>setFormData({...formData, inventory:{...formData.inventory, hasRiceForNextDay:false}})} className={`flex-1 py-6 rounded-[28px] font-black text-xl border-4 transition-all duration-300 transform active:scale-95 ${formData.inventory.hasRiceForNextDay===false?'bg-gray-900 border-gray-900 text-white shadow-2xl':'bg-white border-gray-100 text-gray-400'} font-black font-black font-black`}>아니오, 부족</button>
-                </div>
-              </div>
+               {/* 쌀 3박스 필수 질문 (폰트 사이즈 조정) */}
+               <div className="bg-rose-50 p-6 rounded-[32px] border-4 border-rose-500 shadow-inner font-black">
+                 <p className="text-base text-rose-900 font-black leading-tight text-center mb-5">
+                   내일 사용할 쌀이 총 3박스가 필요합니다.<br/>
+                   <span className="text-xs text-rose-600 font-bold underline mt-1 block">그보다 적을 때는 꼭 관리자에게 연락해 주세요.</span>
+                 </p>
+                 <button 
+                   onClick={() => setFormData({...formData, inventory: {...formData.inventory, riceAgreement: !formData.inventory.riceAgreement}})}
+                   className={`w-full flex items-center justify-center gap-3 py-5 rounded-[28px] font-black text-xl border-4 transition-all active:scale-95 ${formData.inventory.riceAgreement ? 'bg-rose-600 border-rose-600 text-white shadow-xl font-black' : 'bg-white border-rose-300 text-rose-400 font-black'}`}
+                 >
+                   {formData.inventory.riceAgreement ? <CheckCircle2 size={28}/> : <Circle size={28}/>}
+                   예 알겠습니다.
+                 </button>
+               </div>
+
               <div className="grid grid-cols-1 gap-6 pt-4 border-t border-gray-100 font-black font-black">
                 <div className="space-y-3 font-black">
                   <p className="text-base text-gray-900 border-l-4 border-gray-900 pl-3">포장 비닐</p>
@@ -1163,12 +1417,6 @@ export default function App() {
                   <input type="text" value={formData.inventory.otherSupplies} onChange={e=>setFormData({...formData, inventory:{...formData.inventory, otherSupplies:e.target.value}})} className="w-full p-5 bg-gray-100 rounded-3xl border-none outline-none font-black text-gray-900 text-lg shadow-inner focus:ring-4 ring-rose-200" placeholder="그 외 부족한 물품을 적어주세요..." />
                 </div>
               </div>
-              {formData.inventory.hasRiceForNextDay === false && (
-                  <div className="mt-4 p-6 bg-rose-50 rounded-[32px] border-4 border-rose-500 space-y-4 animate-in slide-in-from-top-6 shadow-2xl font-black">
-                      <label className="text-xl text-rose-800 block">쌀 잔량 정보를 입력해 주세요</label>
-                      <input type="text" value={formData.inventory.remainingRiceAmount} onChange={e=>setFormData({...formData, inventory:{...formData.inventory, remainingRiceAmount: e.target.value}})} className="w-full p-5 bg-white rounded-2xl border-none outline-none font-black text-gray-900 text-2xl shadow-inner focus:ring-4 ring-rose-300" placeholder="예: 0.5박스 남았습니다" />
-                  </div>
-              )}
             </div>
           </section>
 
@@ -1254,7 +1502,7 @@ export default function App() {
               <p className="font-black text-gray-900 mb-12 text-3xl tracking-tight leading-tight font-black">정말 이 항목을<br/>영구 삭제하시겠습니까?</p>
               <div className="flex gap-4 font-black font-black font-black">
                  <button onClick={()=>setDeleteConfirmId(null)} className="flex-1 py-6 bg-gray-100 rounded-[28px] font-black text-xl text-gray-500 hover:bg-gray-200 transition-colors font-black font-black">취소</button>
-                 <button onClick={()=>executeDelete(deleteConfirmId, view === 'notices' ? 'notices' : 'reports')} className="flex-1 py-6 bg-red-600 text-white rounded-[28px] font-black shadow-2xl active:scale-95 transition-all font-black font-black font-black font-black font-black">삭제 승인</button>
+                 <button onClick={()=>executeDelete(deleteConfirmId, view === 'notices' ? 'notices' : view === 'qna' ? 'qna' : 'reports')} className="flex-1 py-6 bg-red-600 text-white rounded-[28px] font-black shadow-2xl active:scale-95 transition-all font-black font-black font-black font-black font-black">삭제 승인</button>
               </div>
            </div>
         </div>
