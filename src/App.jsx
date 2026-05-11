@@ -323,7 +323,7 @@ export default function App() {
     const cashVal = Number(parseComma(formData.sales.cash)) || 0;
     const cardVal = Number(parseComma(formData.sales.card)) || 0;
     const total = cashVal + cardVal;
-    const finalWorker = formData.worker === '직접입력' ? formData.customWorker : formData.worker;
+    const finalWorker = formData.worker;
 
     try {
       await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'reports', Date.now().toString()), {
@@ -388,9 +388,7 @@ export default function App() {
     if (!user || !scheduleSelection) return;
     const { date, location } = scheduleSelection;
     const docId = `${date}_${location}`;
-    const finalManager = manager === '직접입력' ? customScheduleWorker : manager;
-    
-    if (manager === '직접입력' && !customScheduleWorker.trim()) return setAlertMessage("이름을 입력해 주세요.");
+    const finalManager = manager;
 
     try {
       if (manager === 'CLEAR') {
@@ -399,7 +397,6 @@ export default function App() {
         await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'schedules', docId), { manager: finalManager });
       }
       setScheduleSelection(null);
-      setCustomScheduleWorker('');
     } catch (e) { setAlertMessage("배정 실패: " + e.message); }
   };
 
@@ -606,14 +603,15 @@ export default function App() {
       const dStr = `${year}-${String(month+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
       const isHoliday = holidays.includes(dStr);
       const assignedManager = schedules[`${dStr}_${location}`];
+      const isToday = dStr === getTodayString();
       
       days.push(
         <div 
           key={d} 
           onClick={() => !isHoliday && setScheduleSelection({ date: dStr, location })}
-          className={`p-1 border border-gray-200 min-h-[70px] flex flex-col rounded-lg transition-all ${isHoliday ? 'bg-gray-50 border-gray-100 cursor-not-allowed opacity-50' : 'cursor-pointer hover:border-gray-900 bg-white active:scale-95'}`}
+          className={`p-1 border min-h-[70px] flex flex-col rounded-lg transition-all ${isToday ? 'border-red-500 border-2' : 'border-gray-200'} ${isHoliday ? 'bg-gray-50 border-gray-100 cursor-not-allowed opacity-50' : 'cursor-pointer hover:border-gray-900 bg-white active:scale-95'}`}
         >
-          <span className={`text-xs font-black ${isHoliday ? 'text-gray-300' : 'text-gray-400'}`}>{d}</span>
+          <span className={`text-xs font-black ${isToday ? 'text-red-500' : isHoliday ? 'text-gray-300' : 'text-gray-400'}`}>{d}</span>
           {isHoliday && (
              <div className="mt-auto bg-gray-200 text-gray-400 p-1 rounded text-center text-[10px] font-black font-sans uppercase">휴무</div>
           )}
@@ -1069,26 +1067,20 @@ export default function App() {
                     <div className="mt-5 pt-5 border-t-2 border-dashed border-gray-100">
                       {q.answer ? (
                         <div className="bg-blue-50 p-5 rounded-2xl border-2 border-blue-100 shadow-inner">
-                          <p className="text-[11px] font-black text-blue-600 mb-2 flex items-center gap-1 uppercase tracking-widest"><CheckCircle2 size={14}/> 관리자 답변</p>
+                          <p className="text-[11px] font-black text-blue-600 mb-2 flex items-center gap-1 uppercase tracking-widest"><CheckCircle2 size={14}/> 답변 완료</p>
                           <p className="font-black text-blue-900 whitespace-pre-wrap text-base">{q.answer}</p>
                         </div>
                       ) : (
-                        isAdmin ? (
-                          qnaReplyId === q.id ? (
-                            <div className="space-y-3 bg-gray-50 p-4 rounded-2xl border-2 border-gray-200">
-                              <textarea value={qnaReplyContent} onChange={e=>setQnaReplyContent(e.target.value)} className="w-full bg-white rounded-xl p-4 font-black text-sm text-gray-900 border-none outline-none shadow-inner focus:ring-2 ring-blue-300" rows={3} placeholder="답변 내용을 입력하세요..."/>
-                              <div className="flex gap-2">
-                                 <button onClick={()=>submitQnaReply(q.id)} className="flex-1 bg-blue-600 text-white py-3 rounded-xl text-sm font-black shadow-md">답변 등록</button>
-                                 <button onClick={()=>setQnaReplyId(null)} className="flex-1 bg-gray-300 text-gray-700 py-3 rounded-xl text-sm font-black">취소</button>
-                              </div>
+                        qnaReplyId === q.id ? (
+                          <div className="space-y-3 bg-gray-50 p-4 rounded-2xl border-2 border-gray-200">
+                            <textarea value={qnaReplyContent} onChange={e=>setQnaReplyContent(e.target.value)} className="w-full bg-white rounded-xl p-4 font-black text-sm text-gray-900 border-none outline-none shadow-inner focus:ring-2 ring-blue-300" rows={3} placeholder="답변 내용을 입력하세요..."/>
+                            <div className="flex gap-2">
+                               <button onClick={()=>submitQnaReply(q.id)} className="flex-1 bg-blue-600 text-white py-3 rounded-xl text-sm font-black shadow-md">답변 등록</button>
+                               <button onClick={()=>setQnaReplyId(null)} className="flex-1 bg-gray-300 text-gray-700 py-3 rounded-xl text-sm font-black">취소</button>
                             </div>
-                          ) : (
-                            <button onClick={()=>{setQnaReplyId(q.id); setQnaReplyContent('');}} className="w-full py-4 bg-gray-100 text-gray-600 rounded-2xl text-sm font-black hover:bg-gray-200 border-2 border-gray-200 transition-colors">관리자 답변 달기</button>
-                          )
-                        ) : (
-                          <div className="bg-gray-50 p-4 rounded-2xl border-2 border-gray-100 text-center">
-                            <p className="text-xs font-black text-gray-400 flex items-center justify-center gap-2"><Clock size={14}/> 관리자 답변 대기중입니다.</p>
                           </div>
+                        ) : (
+                          <button onClick={()=>{setQnaReplyId(q.id); setQnaReplyContent('');}} className="w-full py-4 bg-gray-100 text-gray-600 rounded-2xl text-sm font-black hover:bg-gray-200 border-2 border-gray-200 transition-colors">답변 남기기</button>
                         )
                       )}
                     </div>
@@ -1244,24 +1236,7 @@ export default function App() {
                       {m}
                     </button>
                   ))}
-                  <button onClick={() => setCustomScheduleWorker('직접입력')} className={`py-5 rounded-3xl border-4 bg-gray-900 text-white border-gray-900 transition-all font-black text-sm col-span-2`}>
-                    직접 입력하기
-                  </button>
                 </div>
-
-                {customScheduleWorker === '직접입력' && (
-                  <div className="space-y-4 mb-6 animate-in slide-in-from-top-4 font-black">
-                     <input 
-                       type="text" 
-                       autoFocus
-                       value={customScheduleWorker === '직접입력' ? '' : customScheduleWorker} 
-                       onChange={e=>setCustomScheduleWorker(e.target.value)} 
-                       className="w-full p-5 bg-gray-100 rounded-3xl border-none outline-none text-gray-900 text-center font-black text-xl shadow-inner focus:ring-4 ring-gray-900" 
-                       placeholder="이름을 입력하세요" 
-                     />
-                     <button onClick={() => assignWorkerToSchedule('직접입력')} className="w-full py-5 bg-gray-900 text-white rounded-3xl font-black shadow-lg">저장</button>
-                  </div>
-                )}
 
                 <button onClick={() => assignWorkerToSchedule('CLEAR')} className="w-full py-5 bg-red-50 text-red-600 rounded-3xl font-black border-4 border-red-100 flex items-center justify-center gap-2 shadow-sm">
                   <Trash2 size={20}/> 배정 삭제
@@ -1314,16 +1289,7 @@ export default function App() {
                         {m}
                       </button>
                     ))}
-                    <button 
-                        onClick={() => setFormData({...formData, worker: '직접입력'})} 
-                        className={`py-4 rounded-2xl text-sm font-black border-4 transition-all active:scale-95 ${formData.worker === '직접입력' ? 'bg-gray-900 border-gray-900 text-white shadow-lg' : 'bg-white border-gray-100 text-gray-400'}`}
-                    >
-                        직접입력
-                    </button>
                   </div>
-                  {formData.worker === '직접입력' && (
-                    <input type="text" value={formData.customWorker} onChange={e=>setFormData({...formData, customWorker: e.target.value})} placeholder="매니저 이름을 입력해 주세요" className="w-full p-4 bg-gray-100 rounded-2xl font-black text-gray-900 border-none outline-none shadow-inner focus:ring-4 ring-rose-300 animate-in slide-in-from-top-2 font-black" />
-                  )}
                </div>
                <div className="flex justify-between items-center font-black">
                   <label className="text-lg text-gray-900 font-black">영업 위치</label>
