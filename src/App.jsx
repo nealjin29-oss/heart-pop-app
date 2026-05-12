@@ -511,7 +511,13 @@ export default function App() {
     const avgRicePerDay = uniqueDaysCount > 0 ? (totalRice / uniqueDaysCount).toFixed(1) : 0;
     const cumulativeRiceCost = totalRice * 2500;
     
-    return { total, profit, sang, ha, cash, card, cashPercent, cardPercent, avgRicePerDay, cumulativeRiceCost, workingDays: uniqueDaysCount, holidayCount: monthHolidaysCount, maxDay, minDay };
+    // 신규 추가: 기대매출, 로스/시식 금액, 일평균 매출, 목표 대비 과부족
+    const expectedSales = totalRice * 42735;
+    const lossAmount = expectedSales - total;
+    const avgDailySales = uniqueDaysCount > 0 ? Math.round(total / uniqueDaysCount) : 0;
+    const targetDifference = avgDailySales - 1900000;
+    
+    return { total, profit, sang, ha, cash, card, cashPercent, cardPercent, avgRicePerDay, cumulativeRiceCost, workingDays: uniqueDaysCount, holidayCount: monthHolidaysCount, maxDay, minDay, expectedSales, lossAmount, avgDailySales, targetDifference };
   }, [reports, calendarDate, holidays]);
 
   const filteredReports = useMemo(() => {
@@ -726,6 +732,18 @@ export default function App() {
                     <p className="text-2xl font-black text-emerald-700">{Number(monthlyStats.cumulativeRiceCost).toLocaleString()}원</p>
                  </div>
               </div>
+              
+              {/* 신규 추가: 기대 매출 및 로스/시식 환산액 */}
+              <div className="grid grid-cols-2 gap-4 pt-4 border-t-2 border-dashed border-gray-100">
+                 <div className="bg-purple-50 p-5 rounded-3xl border-2 border-purple-200 shadow-sm">
+                    <h4 className="text-[10px] font-black text-purple-400 mb-1 uppercase tracking-tighter">기대 매출 (쌀 기준)</h4>
+                    <p className="text-2xl font-black text-purple-700">{monthlyStats.expectedSales.toLocaleString()}원</p>
+                 </div>
+                 <div className="bg-amber-50 p-5 rounded-3xl border-2 border-amber-200 shadow-sm">
+                    <h4 className="text-[10px] font-black text-amber-400 mb-1 uppercase tracking-tighter">로스+시식 환산액</h4>
+                    <p className="text-2xl font-black text-amber-700">{monthlyStats.lossAmount.toLocaleString()}원</p>
+                 </div>
+              </div>
             </div>
 
             <div className="flex bg-gray-100 p-2 rounded-[32px] border-2 border-gray-200 font-black">
@@ -784,6 +802,21 @@ export default function App() {
                        )}
                     </div>
                   </div>
+
+                  {/* 신규 추가: 일 평균 매출 및 목표 대비 과부족 */}
+                  <div className="mt-4 grid grid-cols-2 gap-4 font-black">
+                    <div className="bg-teal-50 p-6 rounded-3xl border-2 border-teal-100 flex flex-col items-center">
+                       <span className="text-[10px] font-black text-teal-400 mb-1 uppercase tracking-widest">일 평균 매출</span>
+                       <span className="text-2xl font-black text-teal-600 font-sans">{monthlyStats.avgDailySales.toLocaleString()}원</span>
+                    </div>
+                    <div className="bg-indigo-50 p-6 rounded-3xl border-2 border-indigo-100 flex flex-col items-center">
+                       <span className="text-[10px] font-black text-indigo-400 mb-1 uppercase tracking-widest">목표(190만) 과부족</span>
+                       <span className={`text-2xl font-black font-sans ${monthlyStats.targetDifference >= 0 ? 'text-blue-600' : 'text-red-600'}`}>
+                         {monthlyStats.targetDifference > 0 ? '+' : ''}{monthlyStats.targetDifference.toLocaleString()}원
+                       </span>
+                    </div>
+                  </div>
+
                 </div>
               </div>
             )}
