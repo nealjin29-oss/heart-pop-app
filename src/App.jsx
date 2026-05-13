@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { Camera, CheckCircle2, Circle, MapPin, Calendar, DollarSign, AlertCircle, FileText, User, Lock, Download, Image as ImageIcon, BarChart3, Users, LogOut, ChevronDown, ChevronUp, X, ChevronLeft, ChevronRight, CalendarDays, List, HelpCircle, Edit2, Trash2, Save, Maximize2, Loader2, FileSpreadsheet, TrendingUp, Menu, MessageSquare, BookOpen, Clock, Power, Key, Thermometer, Droplets, Wind, Package, Trash, Shirt, Box, Play, Layers, PiggyBank, CreditCard, Coins, ShoppingCart, Percent, UserPlus, UserMinus } from 'lucide-react';
+import { Camera, CheckCircle2, Circle, MapPin, Calendar, DollarSign, AlertCircle, FileText, User, Lock, Download, Image as ImageIcon, BarChart3, Users, LogOut, ChevronDown, ChevronUp, X, ChevronLeft, ChevronRight, CalendarDays, List, HelpCircle, Edit2, Trash2, Save, Maximize2, Loader2, FileSpreadsheet, TrendingUp, Menu, MessageSquare, BookOpen, Clock, Power, Key, Thermometer, Droplets, Wind, Package, Trash, Shirt, Box, Play, Layers, PiggyBank, CreditCard, Coins, ShoppingCart, Percent, UserPlus, UserMinus, PlusCircle, MinusCircle, History } from 'lucide-react';
 
 // === Firebase Database Integration ===
 import { initializeApp } from 'firebase/app';
@@ -79,6 +79,12 @@ const photoNames = {
   key: '열쇠'
 };
 
+const inventoryTypeNames = {
+  rice: '뻥쌀',
+  tie: '빵끈',
+  bag: '포장 비닐'
+};
+
 const openManualItems = [
   { id: 1, title: 'POS 전원 켜기 + KFPOS 프로그램 켜기', icon: <Power className="text-blue-500"/> },
   { id: 2, title: '돈통 열쇠 찾아서 열기', icon: <Key className="text-amber-500"/> },
@@ -125,12 +131,19 @@ export default function App() {
   const [user, setUser] = useState(null);
   const [isAdmin, setIsAdmin] = useState(false); // 관리자 권한 상태 추가
   const [reports, setReports] = useState([]);
-  const [notices, setNotices] = useState([]);
   const [qnas, setQnas] = useState([]); // Q&A 상태 추가
   const [holidays, setHolidays] = useState([]);
   const [schedules, setSchedules] = useState({});
   const [dbManagers, setDbManagers] = useState([]); // 커스텀 추가된 매니저 상태
   
+  // 재고 관리 상태 (로그 기반으로 변경)
+  const [inventoryLogs, setInventoryLogs] = useState([]);
+  const [adjustType, setAdjustType] = useState('rice');
+  const [adjustAmount, setAdjustAmount] = useState('');
+  const [adjustPrice, setAdjustPrice] = useState(''); // 지출/단가 금액 입력
+  const [editLogId, setEditLogId] = useState(null);
+  const [editLogData, setEditLogData] = useState(null);
+
   const [view, setView] = useState('form'); 
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [adminPwd, setAdminPwd] = useState('');
@@ -147,7 +160,6 @@ export default function App() {
   const [isUploading, setIsUploading] = useState(false); 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [selectedPhoto, setSelectedPhoto] = useState(null);
-  const [noticeInput, setNoticeInput] = useState('');
   const [scheduleSelection, setScheduleSelection] = useState(null); 
   const [customScheduleWorker, setCustomScheduleWorker] = useState('');
   const [newManagerName, setNewManagerName] = useState('');
@@ -222,24 +234,17 @@ export default function App() {
   useEffect(() => {
     if (!user) return;
     const reportsRef = collection(db, 'artifacts', appId, 'public', 'data', 'reports');
-    const noticesRef = collection(db, 'artifacts', appId, 'public', 'data', 'notices');
     const qnaRef = collection(db, 'artifacts', appId, 'public', 'data', 'qna');
     const holidaysRef = collection(db, 'artifacts', appId, 'public', 'data', 'holidays');
     const schedulesRef = collection(db, 'artifacts', appId, 'public', 'data', 'schedules');
     const managersRef = collection(db, 'artifacts', appId, 'public', 'data', 'managers');
+    const inventoryLogsRef = collection(db, 'artifacts', appId, 'public', 'data', 'inventoryLogs');
     
     const unsubReports = onSnapshot(reportsRef, (snapshot) => {
       const fetched = [];
       snapshot.forEach((doc) => fetched.push({ id: doc.id, ...doc.data() }));
       fetched.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
       setReports(fetched);
-    }, (err) => console.error(err));
-
-    const unsubNotices = onSnapshot(noticesRef, (snapshot) => {
-      const fetched = [];
-      snapshot.forEach((doc) => fetched.push({ id: doc.id, ...doc.data() }));
-      fetched.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
-      setNotices(fetched);
     }, (err) => console.error(err));
 
     const unsubQna = onSnapshot(qnaRef, (snapshot) => {
@@ -267,7 +272,14 @@ export default function App() {
       setDbManagers(fetched);
     }, (err) => console.error(err));
 
-    return () => { unsubReports(); unsubNotices(); unsubQna(); unsubHolidays(); unsubSchedules(); unsubManagers(); };
+    const unsubInventoryLogs = onSnapshot(inventoryLogsRef, (snapshot) => {
+      const fetched = [];
+      snapshot.forEach(doc => fetched.push({ id: doc.id, ...doc.data() }));
+      fetched.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+      setInventoryLogs(fetched);
+    }, (err) => console.error(err));
+
+    return () => { unsubReports(); unsubQna(); unsubHolidays(); unsubSchedules(); unsubManagers(); unsubInventoryLogs(); };
   }, [user]);
 
   // --- Handlers ---
@@ -337,17 +349,6 @@ export default function App() {
     } catch (e) { setAlertMessage("제출 실패: " + e.message); } finally { setIsSubmitting(false); }
   };
 
-  const submitNotice = async () => {
-    if (!noticeInput.trim() || !user) return;
-    try {
-      await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'notices'), {
-        content: noticeInput, timestamp: new Date().toISOString(), date: getTodayString()
-      });
-      setNoticeInput('');
-      setAlertMessage("공유사항이 성공적으로 등록되었습니다.");
-    } catch (e) { setAlertMessage("등록 실패: " + e.message); }
-  };
-
   const submitQna = async () => {
     if (!qnaQuestion.trim() || !user) return;
     try {
@@ -400,10 +401,14 @@ export default function App() {
     } catch (e) { setAlertMessage("배정 실패: " + e.message); }
   };
 
-  const executeDelete = async (id, colName = 'reports') => {
+  const executeDelete = async (id) => {
     if (!user) return;
     try {
-      await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', colName, id));
+      let col = 'reports';
+      if (view === 'qna') col = 'qna';
+      if (adminViewMode === 'inventory' && view === 'admin') col = 'inventoryLogs';
+
+      await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', col, id));
       setDeleteConfirmId(null);
     } catch (e) { setAlertMessage("삭제 오류: " + e.message); }
   };
@@ -449,7 +454,108 @@ export default function App() {
     } catch (e) { setAlertMessage("삭제 실패: " + e.message); }
   };
 
-  // --- Statistics ---
+  // --- Inventory Adjust Handler (Log Based) ---
+  const handleAdjustInventory = async (isAdd) => {
+    if (!user || !adjustAmount) return;
+    const amount = Number(adjustAmount);
+    const price = Number(parseComma(adjustPrice)) || 0;
+
+    if (isNaN(amount) || amount <= 0) return setAlertMessage("올바른 수량을 입력하세요.");
+
+    try {
+      await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'inventoryLogs'), {
+        type: adjustType,
+        action: isAdd ? 'add' : 'remove',
+        amount: amount,
+        price: price,
+        date: getTodayString(),
+        timestamp: new Date().toISOString()
+      });
+      setAdjustAmount('');
+      setAdjustPrice('');
+      setAlertMessage(`성공적으로 재고가 ${isAdd ? '입고' : '출고'} 기록되었습니다.`);
+    } catch (e) {
+      setAlertMessage("재고 반영 실패: " + e.message);
+    }
+  };
+
+  const startEditLog = (log) => {
+    setEditLogId(log.id);
+    setEditLogData({ ...log, priceStr: formatComma(log.price || 0) });
+  };
+
+  const saveLogEdit = async () => {
+    if (!user || !editLogData) return;
+    const price = Number(parseComma(editLogData.priceStr)) || 0;
+    const amount = Number(editLogData.amount) || 0;
+    
+    if (isNaN(amount) || amount <= 0) return setAlertMessage("올바른 수량을 입력하세요.");
+
+    const updated = { ...editLogData, amount, price };
+    delete updated.priceStr;
+    delete updated.id;
+
+    try {
+      await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'inventoryLogs', editLogId), updated);
+      setEditLogId(null);
+      setEditLogData(null);
+      setAlertMessage("기록이 성공적으로 수정되었습니다.");
+    } catch (e) {
+      setAlertMessage("수정 오류: " + e.message);
+    }
+  };
+
+  // --- Statistics & Inventory Calculations ---
+  // 누적 입출고 기반의 재고 및 지출액 (품목별 세분화 포함)
+  const inventoryTotals = useMemo(() => {
+    let rice = 0, tie = 0, bag = 0, totalSpent = 0;
+    let riceSpent = 0, tieSpent = 0, bagSpent = 0;
+
+    inventoryLogs.forEach(log => {
+      const mult = log.action === 'add' ? 1 : -1;
+      if (log.type === 'rice') rice += log.amount * mult;
+      if (log.type === 'tie') tie += log.amount * mult;
+      if (log.type === 'bag') bag += log.amount * mult;
+
+      // 지출 금액 합산 및 품목별 분배
+      const price = Number(log.price) || 0;
+      if (log.action === 'add') {
+        totalSpent += price;
+        if (log.type === 'rice') riceSpent += price;
+        if (log.type === 'tie') tieSpent += price;
+        if (log.type === 'bag') bagSpent += price;
+      } else if (log.action === 'remove') {
+        totalSpent -= price;
+        if (log.type === 'rice') riceSpent -= price;
+        if (log.type === 'tie') tieSpent -= price;
+        if (log.type === 'bag') bagSpent -= price;
+      }
+    });
+    return { rice, tie, bag, totalSpent, riceSpent, tieSpent, bagSpent };
+  }, [inventoryLogs]);
+
+  // 현재 재고 계산 = (수동 입출고 누적 합산) - (리포트 제출을 통한 자동 차감)
+  const currentStock = useMemo(() => {
+    let usedRice = 0;
+    let usedTieAndBag = 0;
+    
+    reports.forEach(r => {
+      usedRice += Number(r.inventory?.usedRice || 0);
+      const sales = Number(r.totalSales || 0);
+      usedTieAndBag += Math.floor(sales / 5000);
+    });
+
+    return {
+      riceKg: inventoryTotals.rice - usedRice,
+      tie: inventoryTotals.tie - usedTieAndBag,
+      bag: inventoryTotals.bag - usedTieAndBag,
+      totalSpent: inventoryTotals.totalSpent,
+      riceSpent: inventoryTotals.riceSpent,
+      tieSpent: inventoryTotals.tieSpent,
+      bagSpent: inventoryTotals.bagSpent
+    };
+  }, [reports, inventoryTotals]);
+
   const dailyStatus = useMemo(() => {
     const today = formData.date;
     return {
@@ -643,9 +749,6 @@ export default function App() {
           <button onClick={() => { setView('form'); setIsMenuOpen(false); }} className={`w-full flex items-center gap-3 p-4 rounded-2xl font-black transition-all ${view === 'form' ? 'bg-rose-600 text-white shadow-lg' : 'text-gray-600 hover:bg-gray-100'}`}>
             <FileText size={20}/> 업무공유 리포트
           </button>
-          <button onClick={() => { setView('notices'); setIsMenuOpen(false); }} className={`w-full flex items-center gap-3 p-4 rounded-2xl font-black transition-all ${view === 'notices' ? 'bg-rose-600 text-white shadow-lg' : 'text-gray-600 hover:bg-gray-100'}`}>
-            <MessageSquare size={20}/> 날짜별 공유사항
-          </button>
           <button onClick={() => { setView('qna'); setIsMenuOpen(false); }} className={`w-full flex items-center gap-3 p-4 rounded-2xl font-black transition-all ${view === 'qna' ? 'bg-rose-600 text-white shadow-lg' : 'text-gray-600 hover:bg-gray-100'}`}>
             <HelpCircle size={20}/> 질문과 답변 (Q&A)
           </button>
@@ -733,7 +836,7 @@ export default function App() {
                  </div>
               </div>
               
-              {/* 신규 추가: 기대 매출 및 로스/시식 환산액 */}
+              {/* 기대 매출 및 로스/시식 환산액 */}
               <div className="grid grid-cols-2 gap-4 pt-4 border-t-2 border-dashed border-gray-100">
                  <div className="bg-purple-50 p-5 rounded-3xl border-2 border-purple-200 shadow-sm">
                     <h4 className="text-[10px] font-black text-purple-400 mb-1 uppercase tracking-tighter">기대 매출 (쌀 기준)</h4>
@@ -746,11 +849,11 @@ export default function App() {
               </div>
             </div>
 
-            <div className="flex bg-gray-100 p-2 rounded-[32px] border-2 border-gray-200 font-black">
-              {/* 집계 달력을 첫 번째 탭으로 스위칭 */}
-              <button onClick={()=>setAdminViewMode('calendar')} className={`flex-1 py-4 rounded-2xl text-sm font-black transition-all ${adminViewMode==='calendar'?'bg-white shadow-xl text-gray-900':'text-gray-500'}`}>집계 달력</button>
-              <button onClick={()=>setAdminViewMode('list')} className={`flex-1 py-4 rounded-2xl text-sm font-black transition-all ${adminViewMode==='list'?'bg-white shadow-xl text-gray-900':'text-gray-500'}`}>리포트 목록</button>
-              <button onClick={()=>setAdminViewMode('sales')} className={`flex-1 py-4 rounded-2xl text-sm font-black transition-all ${adminViewMode==='sales'?'bg-white shadow-xl text-gray-900':'text-gray-500'}`}>매출 및 매니저</button>
+            <div className="flex flex-wrap bg-gray-100 p-2 rounded-[32px] border-2 border-gray-200 font-black">
+              <button onClick={()=>setAdminViewMode('calendar')} className={`flex-1 min-w-[80px] py-4 rounded-2xl text-sm font-black transition-all ${adminViewMode==='calendar'?'bg-white shadow-xl text-gray-900':'text-gray-500'}`}>집계 달력</button>
+              <button onClick={()=>setAdminViewMode('list')} className={`flex-1 min-w-[80px] py-4 rounded-2xl text-sm font-black transition-all ${adminViewMode==='list'?'bg-white shadow-xl text-gray-900':'text-gray-500'}`}>리포트 목록</button>
+              <button onClick={()=>setAdminViewMode('sales')} className={`flex-1 min-w-[80px] py-4 rounded-2xl text-sm font-black transition-all ${adminViewMode==='sales'?'bg-white shadow-xl text-gray-900':'text-gray-500'}`}>매출/매니저</button>
+              <button onClick={()=>setAdminViewMode('inventory')} className={`flex-1 min-w-[80px] py-4 rounded-2xl text-sm font-black transition-all ${adminViewMode==='inventory'?'bg-white shadow-xl text-gray-900':'text-gray-500'}`}>재고 관리</button>
             </div>
 
             {adminViewMode === 'calendar' && (
@@ -803,7 +906,7 @@ export default function App() {
                     </div>
                   </div>
 
-                  {/* 신규 추가: 일 평균 매출 및 목표 대비 과부족 */}
+                  {/* 일 평균 매출 및 목표 대비 과부족 */}
                   <div className="mt-4 grid grid-cols-2 gap-4 font-black">
                     <div className="bg-teal-50 p-6 rounded-3xl border-2 border-teal-100 flex flex-col items-center">
                        <span className="text-[10px] font-black text-teal-400 mb-1 uppercase tracking-widest">일 평균 매출</span>
@@ -907,6 +1010,173 @@ export default function App() {
                           </div>
                        </div>
                     </div>
+                 </div>
+              </div>
+            )}
+
+            {adminViewMode === 'inventory' && (
+              <div className="space-y-6 animate-in fade-in font-black font-black">
+                 {/* 누적 지출 비용 현황 및 세부내역 */}
+                 <div className="bg-emerald-600 p-8 rounded-[48px] border-4 border-emerald-800 shadow-2xl text-center space-y-3 relative overflow-hidden">
+                    <div className="absolute top-0 right-0 p-6 opacity-20"><PiggyBank size={100} color="white"/></div>
+                    
+                    {/* 전체 합산 */}
+                    <div className="relative z-10 space-y-2 pt-2">
+                       <p className="text-emerald-200 text-xs font-black uppercase tracking-widest">총 재고 지출 누적액</p>
+                       <p className="text-5xl font-black text-white tracking-tight">{currentStock.totalSpent.toLocaleString()}<span className="text-2xl ml-1">원</span></p>
+                       <p className="text-[10px] text-emerald-300">* 하단에 입력된 모든 입출고 내역 금액의 합산입니다.</p>
+                    </div>
+
+                    {/* 품목별 지출 세부 내역 */}
+                    <div className="grid grid-cols-3 gap-2 mt-8 pt-6 border-t-2 border-emerald-500/50 relative z-10">
+                       <div className="flex flex-col items-center justify-center">
+                          <span className="text-[10px] text-emerald-300 uppercase tracking-widest mb-1">뻥쌀 지출</span>
+                          <span className="text-xl font-black text-white">{currentStock.riceSpent.toLocaleString()}원</span>
+                       </div>
+                       <div className="flex flex-col items-center justify-center border-x-2 border-emerald-500/50">
+                          <span className="text-[10px] text-emerald-300 uppercase tracking-widest mb-1">빵끈 지출</span>
+                          <span className="text-xl font-black text-white">{currentStock.tieSpent.toLocaleString()}원</span>
+                       </div>
+                       <div className="flex flex-col items-center justify-center">
+                          <span className="text-[10px] text-emerald-300 uppercase tracking-widest mb-1">비닐 지출</span>
+                          <span className="text-xl font-black text-white">{currentStock.bagSpent.toLocaleString()}원</span>
+                       </div>
+                    </div>
+                 </div>
+
+                 <div className="bg-white p-8 rounded-[48px] border-4 border-gray-900 shadow-2xl space-y-6">
+                    <h3 className="text-xl font-black text-gray-900 border-l-8 border-rose-600 pl-4 py-1">현재 재고 현황</h3>
+                    <p className="text-[10px] text-gray-400">* 빵끈과 포장비닐은 누적 매출 5,000원당 1개씩 자동 차감됩니다.</p>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                       <div className="bg-amber-50 p-6 rounded-3xl border-4 border-amber-200 flex flex-col items-center justify-center space-y-2 shadow-sm">
+                          <Box className="text-amber-500 mb-1" size={36}/>
+                          <span className="text-xs font-black text-amber-500 uppercase tracking-widest">뻥쌀 재고</span>
+                          <span className="text-4xl font-black text-amber-700 tracking-tight">{currentStock.riceKg.toLocaleString()}<span className="text-lg">kg</span></span>
+                          <span className="text-sm font-black text-amber-600">약 {(currentStock.riceKg / 20).toFixed(1)}박스</span>
+                          <div className="w-full border-t-2 border-amber-200 mt-2 pt-2 text-center">
+                             <span className="text-xs text-amber-600">자산 가치: {(currentStock.riceKg * 2500).toLocaleString()}원</span>
+                          </div>
+                       </div>
+                       <div className="bg-blue-50 p-6 rounded-3xl border-4 border-blue-200 flex flex-col items-center justify-center space-y-2 shadow-sm">
+                          <Package className="text-blue-500 mb-1" size={36}/>
+                          <span className="text-xs font-black text-blue-500 uppercase tracking-widest">빵끈 재고</span>
+                          <span className="text-4xl font-black text-blue-700 tracking-tight">{currentStock.tie.toLocaleString()}<span className="text-lg">개</span></span>
+                          <span className="text-sm font-black text-blue-50/0 select-none">-</span>
+                          <div className="w-full border-t-2 border-blue-200 mt-2 pt-2 text-center">
+                             <span className="text-xs text-blue-600">자산 가치: {(currentStock.tie * 5).toLocaleString()}원</span>
+                          </div>
+                       </div>
+                       <div className="bg-rose-50 p-6 rounded-3xl border-4 border-rose-200 flex flex-col items-center justify-center space-y-2 shadow-sm">
+                          <ShoppingCart className="text-rose-500 mb-1" size={36}/>
+                          <span className="text-xs font-black text-rose-500 uppercase tracking-widest">포장 비닐 재고</span>
+                          <span className="text-4xl font-black text-rose-700 tracking-tight">{currentStock.bag.toLocaleString()}<span className="text-lg">개</span></span>
+                          <span className="text-sm font-black text-rose-50/0 select-none">-</span>
+                          <div className="w-full border-t-2 border-rose-200 mt-2 pt-2 text-center">
+                             <span className="text-xs text-rose-600">자산 가치: {(currentStock.bag * 40).toLocaleString()}원</span>
+                          </div>
+                       </div>
+                    </div>
+                 </div>
+
+                 <div className="bg-white p-8 rounded-[48px] border-4 border-gray-900 shadow-2xl space-y-6">
+                    <h3 className="text-xl font-black text-gray-900 border-l-8 border-gray-900 pl-4 py-1">재고 수동 입출고 반영</h3>
+                    <p className="text-[11px] text-gray-500 bg-gray-50 p-4 rounded-2xl border-2 border-gray-100 leading-relaxed">
+                       * 판매 및 영업으로 인한 재고 차감은 매니저 리포트를 기반으로 <span className="text-rose-600">자동 반영</span>됩니다.<br/>
+                       * 따라서 물건이 <span className="text-blue-600">새로 입고</span>되었거나 특이 사항으로 인한 <span className="text-red-600">재고 조정(출고)</span>이 필요할 때만 작성해 주세요. 금액을 비워두면 0원으로 기록됩니다.
+                    </p>
+                    <div className="space-y-4 pt-2">
+                       <div className="flex flex-col gap-3">
+                          <div className="flex gap-2">
+                            <select value={adjustType} onChange={e=>setAdjustType(e.target.value)} className="w-1/3 p-5 bg-gray-100 rounded-3xl border-none outline-none font-black text-gray-900 shadow-inner text-sm">
+                               <option value="rice">뻥쌀 (kg)</option>
+                               <option value="tie">빵끈 (개)</option>
+                               <option value="bag">포장 비닐 (개)</option>
+                            </select>
+                            <input type="number" value={adjustAmount} onChange={e=>setAdjustAmount(e.target.value)} placeholder="수량 입력" className="w-2/3 p-5 bg-gray-100 rounded-3xl border-none outline-none font-black text-gray-900 text-right shadow-inner focus:ring-4 ring-gray-200 text-xl" />
+                          </div>
+                          <div className="w-full">
+                            <input type="text" value={formatComma(adjustPrice)} onChange={e=>setAdjustPrice(parseComma(e.target.value))} placeholder="단가 또는 총 금액 입력 (선택사항, 원)" className="w-full p-5 bg-emerald-50 rounded-3xl border-none outline-none font-black text-emerald-900 text-right shadow-inner focus:ring-4 ring-emerald-200 text-lg placeholder:text-emerald-300" />
+                          </div>
+                       </div>
+                       <div className="flex gap-3 pt-2">
+                          <button onClick={()=>handleAdjustInventory(true)} className="flex-1 py-5 bg-blue-600 text-white rounded-3xl font-black shadow-lg active:scale-95 transition-all text-base border-b-4 border-blue-800 flex items-center justify-center gap-2"><PlusCircle size={20}/> 입고 (추가)</button>
+                          <button onClick={()=>handleAdjustInventory(false)} className="flex-1 py-5 bg-red-600 text-white rounded-3xl font-black shadow-lg active:scale-95 transition-all text-base border-b-4 border-red-800 flex items-center justify-center gap-2"><MinusCircle size={20}/> 출고 (차감)</button>
+                       </div>
+                    </div>
+                 </div>
+
+                 {/* 입출고 상세 내역 (히스토리) 리스트 */}
+                 <div className="space-y-4 pt-6">
+                    <div className="flex items-center gap-2 mb-4 px-2">
+                       <History className="text-gray-900" size={24}/>
+                       <h3 className="text-xl font-black text-gray-900">재고 입출고 상세 내역</h3>
+                    </div>
+                    {inventoryLogs.length === 0 ? (
+                       <p className="text-center text-gray-400 py-10 font-black text-sm bg-gray-50 rounded-3xl border-2 border-dashed border-gray-200">기록된 입출고 내역이 없습니다.</p>
+                    ) : (
+                       inventoryLogs.map(log => (
+                          <div key={log.id} className="bg-white p-6 rounded-[36px] border-4 border-gray-900 shadow-md flex flex-col animate-in slide-in-from-bottom-2">
+                             {editLogId === log.id ? (
+                                <div className="space-y-4 bg-gray-50 p-5 rounded-2xl border-2 border-gray-200 shadow-inner">
+                                   <div className="flex justify-between items-center mb-2">
+                                     <span className="text-xs font-black text-gray-500">내역 수정</span>
+                                     <span className="text-[10px] text-gray-400">{log.date}</span>
+                                   </div>
+                                   <div className="grid grid-cols-2 gap-3">
+                                      <select value={editLogData.type} onChange={e=>setEditLogData({...editLogData, type: e.target.value})} className="p-3 bg-white rounded-xl border-none font-black text-sm text-gray-900 shadow-sm">
+                                         <option value="rice">뻥쌀</option>
+                                         <option value="tie">빵끈</option>
+                                         <option value="bag">포장 비닐</option>
+                                      </select>
+                                      <select value={editLogData.action} onChange={e=>setEditLogData({...editLogData, action: e.target.value})} className="p-3 bg-white rounded-xl border-none font-black text-sm text-gray-900 shadow-sm">
+                                         <option value="add">입고(+)</option>
+                                         <option value="remove">출고(-)</option>
+                                      </select>
+                                      <div className="col-span-2 flex gap-3">
+                                         <input type="number" value={editLogData.amount} onChange={e=>setEditLogData({...editLogData, amount: e.target.value})} className="flex-1 p-3 bg-white rounded-xl border-none font-black text-right text-gray-900 shadow-sm" placeholder="수량" />
+                                         <input type="text" value={formatComma(editLogData.priceStr)} onChange={e=>setEditLogData({...editLogData, priceStr: parseComma(e.target.value)})} className="flex-1 p-3 bg-emerald-50 rounded-xl border-none font-black text-right text-emerald-900 shadow-sm" placeholder="금액" />
+                                      </div>
+                                   </div>
+                                   <div className="flex gap-2 pt-2">
+                                      <button onClick={saveLogEdit} className="flex-1 bg-green-600 text-white py-3 rounded-xl text-sm font-black shadow-md"><Save size={16} className="inline mr-1"/>저장</button>
+                                      <button onClick={()=>{setEditLogId(null); setEditLogData(null);}} className="flex-1 bg-gray-300 text-gray-700 py-3 rounded-xl text-sm font-black">취소</button>
+                                   </div>
+                                </div>
+                             ) : (
+                                <>
+                                   <div className="flex justify-between items-start border-b-2 border-gray-100 pb-4 mb-4">
+                                      <div>
+                                         <span className={`px-3 py-1 rounded-full text-[10px] font-black mr-2 ${log.action === 'add' ? 'bg-blue-100 text-blue-700' : 'bg-red-100 text-red-700'}`}>
+                                            {log.action === 'add' ? '입고' : '출고'}
+                                         </span>
+                                         <span className="font-black text-lg text-gray-900">{inventoryTypeNames[log.type]}</span>
+                                      </div>
+                                      <div className="text-right">
+                                         <span className="text-[10px] text-gray-400 block">{log.date}</span>
+                                         <span className="text-[10px] text-gray-400 block">{formatTime(log.timestamp)}</span>
+                                      </div>
+                                   </div>
+                                   <div className="flex justify-between items-end mb-4 px-1">
+                                      <div className="space-y-1">
+                                         <span className="text-[10px] text-gray-400 font-black uppercase tracking-widest block">수량</span>
+                                         <span className={`text-2xl font-black ${log.action === 'add' ? 'text-blue-600' : 'text-red-600'}`}>
+                                            {log.action === 'add' ? '+' : '-'}{log.amount.toLocaleString()} <span className="text-sm">{log.type === 'rice' ? 'kg' : '개'}</span>
+                                         </span>
+                                      </div>
+                                      <div className="space-y-1 text-right">
+                                         <span className="text-[10px] text-emerald-600/70 font-black uppercase tracking-widest block">비용/금액</span>
+                                         <span className="text-xl font-black text-emerald-600">{Number(log.price || 0).toLocaleString()}원</span>
+                                      </div>
+                                   </div>
+                                   <div className="flex gap-2 font-black">
+                                      <button onClick={()=>startEditLog(log)} className="flex-1 bg-gray-100 text-gray-600 py-3 rounded-2xl text-xs font-black active:scale-95 transition-transform flex items-center justify-center gap-1"><Edit2 size={14}/> 수정</button>
+                                      <button onClick={()=>setDeleteConfirmId({ id: log.id, col: 'inventoryLogs' })} className="flex-1 bg-red-50 text-red-600 py-3 rounded-2xl text-xs font-black active:scale-95 transition-transform flex items-center justify-center gap-1"><Trash2 size={14}/> 삭제</button>
+                                   </div>
+                                </>
+                             )}
+                          </div>
+                       ))
+                    )}
                  </div>
               </div>
             )}
@@ -1016,7 +1286,7 @@ export default function App() {
                              </div>
                              <div className="flex gap-4 pt-4 font-black">
                                 <button onClick={()=>startEdit(r)} className="flex-1 py-5 bg-blue-600 text-white rounded-2xl font-black flex items-center justify-center gap-2 shadow-lg active:scale-95 transition-all"><Edit2 size={20}/> 리포트 수정</button>
-                                <button onClick={()=>setDeleteConfirmId(r.id)} className="flex-1 py-5 bg-red-600 text-white rounded-2xl font-black flex items-center justify-center gap-2 shadow-lg active:scale-95 transition-all"><Trash2 size={20}/> 리포트 삭제</button>
+                                <button onClick={()=>setDeleteConfirmId({ id: r.id, col: 'reports' })} className="flex-1 py-5 bg-red-600 text-white rounded-2xl font-black flex items-center justify-center gap-2 shadow-lg active:scale-95 transition-all"><Trash2 size={20}/> 리포트 삭제</button>
                              </div>
                            </div>
                          )}
@@ -1026,39 +1296,6 @@ export default function App() {
                 ))}
               </div>
             )}
-          </div>
-        </div>
-      );
-    }
-
-    if (view === 'notices') {
-      return (
-        <div className="max-w-md mx-auto bg-white min-h-screen pb-40 font-sans animate-in fade-in font-black">
-          <header className="bg-white p-6 border-b-4 border-gray-900 flex justify-between items-center sticky top-0 z-20 shadow-md">
-            <button onClick={() => setIsMenuOpen(true)} className="p-3 bg-gray-100 rounded-2xl active:scale-90 font-black"><Menu size={24}/></button>
-            <h1 className="font-black text-gray-900 text-xl tracking-tight">하트뻥튀기 (처인휴게소)</h1>
-            <div className="w-10"></div>
-          </header>
-          <div className="p-4 space-y-6 font-black">
-            <div className="bg-white p-6 rounded-[36px] border-4 border-gray-900 shadow-xl space-y-4">
-              <h2 className="text-sm font-black text-rose-600 border-l-8 border-rose-600 pl-3 uppercase tracking-widest font-black">날짜별 공유사항</h2>
-              <textarea value={noticeInput} onChange={e=>setNoticeInput(e.target.value)} className="w-full bg-gray-100 rounded-2xl p-5 font-black text-gray-900 border-none outline-none shadow-inner focus:ring-4 ring-rose-100 font-sans font-black" rows={4} placeholder="모든 매니저가 볼 수 있는 내용을 남겨주세요..."/>
-              <button onClick={submitNotice} className="w-full py-5 bg-rose-600 text-white rounded-2xl font-black text-xl shadow-lg active:scale-95 transition-all">공유사항 등록</button>
-            </div>
-            <div className="space-y-4 font-black">
-               {notices.map(n => (
-                 <div key={n.id} className="bg-white p-6 rounded-[32px] border-4 border-gray-900 shadow-md animate-in slide-in-from-bottom-2 font-black">
-                    <div className="flex justify-between items-center mb-4">
-                       <div className="flex items-center gap-2">
-                          <span className="text-[10px] font-black text-rose-600 bg-rose-50 px-3 py-1 rounded-full border border-rose-100 font-black">{n.date}</span>
-                          <span className="text-[10px] font-black text-gray-400 flex items-center gap-1 font-sans"><Clock size={10}/> {formatTime(n.timestamp)}</span>
-                       </div>
-                       <button onClick={() => setDeleteConfirmId(n.id)} className="text-[10px] font-black text-gray-300 hover:text-red-500 font-black">삭제</button>
-                    </div>
-                    <p className="font-black text-gray-900 text-lg whitespace-pre-wrap leading-relaxed bg-gray-50/50 p-4 rounded-2xl border-2 border-gray-50 font-black">{n.content}</p>
-                 </div>
-               ))}
-            </div>
           </div>
         </div>
       );
@@ -1092,7 +1329,7 @@ export default function App() {
                           <span className="text-[10px] font-black text-rose-600 bg-rose-50 px-3 py-1 rounded-full border border-rose-100">{q.author}</span>
                           <span className="text-[10px] font-black text-gray-400 flex items-center gap-1"><Clock size={10}/> {formatTime(q.timestamp)}</span>
                        </div>
-                       {isAdmin && <button onClick={() => setDeleteConfirmId(q.id)} className="text-[10px] font-black text-red-500">삭제</button>}
+                       {isAdmin && <button onClick={() => setDeleteConfirmId({ id: q.id, col: 'qna' })} className="text-[10px] font-black text-red-500">삭제</button>}
                     </div>
                     <p className="font-black text-gray-900 text-lg whitespace-pre-wrap leading-relaxed px-1">{q.question}</p>
                     
@@ -1328,7 +1565,7 @@ export default function App() {
                   <label className="text-lg text-gray-900 font-black">영업 위치</label>
                   <div className="flex gap-3 font-black">
                     {['상행선','하행선'].map(l=>(
-                      <button key={l} onClick={()=>setFormData({...formData, location:l})} className={`px-7 py-4 rounded-2xl text-base font-black border-4 transition-all duration-300 active:scale-90 shadow-sm ${formData.location === l ? (l === '상행선' ? 'bg-red-600 border-red-600 text-white shadow-xl' : 'bg-blue-600 border-blue-600 text-white shadow-xl') : 'bg-white border-gray-100 text-gray-300'} font-black`}>{l}</button>
+                      <button key={l} onClick={()=>setFormData({...formData, location:l})} className={`px-7 py-4 rounded-2xl text-base font-black border-4 transition-all duration-300 active:scale-90 shadow-sm ${formData.location === l ? (l === '상행선' ? 'bg-red-600 border-red-600 text-white shadow-xl' : 'bg-white border-gray-100 text-gray-300') : 'bg-white border-gray-100 text-gray-300'} font-black`}>{l}</button>
                     ))}
                   </div>
                </div>
@@ -1501,7 +1738,7 @@ export default function App() {
               <p className="font-black text-gray-900 mb-12 text-3xl tracking-tight leading-tight font-black">정말 이 항목을<br/>영구 삭제하시겠습니까?</p>
               <div className="flex gap-4 font-black font-black font-black">
                  <button onClick={()=>setDeleteConfirmId(null)} className="flex-1 py-6 bg-gray-100 rounded-[28px] font-black text-xl text-gray-500 hover:bg-gray-200 transition-colors font-black font-black">취소</button>
-                 <button onClick={()=>executeDelete(deleteConfirmId, view === 'notices' ? 'notices' : view === 'qna' ? 'qna' : 'reports')} className="flex-1 py-6 bg-red-600 text-white rounded-[28px] font-black shadow-2xl active:scale-95 transition-all font-black font-black font-black font-black font-black">삭제 승인</button>
+                 <button onClick={()=>executeDelete(deleteConfirmId.id)} className="flex-1 py-6 bg-red-600 text-white rounded-[28px] font-black shadow-2xl active:scale-95 transition-all font-black font-black font-black font-black font-black">삭제 승인</button>
               </div>
            </div>
         </div>
