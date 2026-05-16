@@ -129,18 +129,19 @@ const formatTime = (isoString) => {
 export default function App() {
   // --- States ---
   const [user, setUser] = useState(null);
-  const [isAdmin, setIsAdmin] = useState(false); // 관리자 권한 상태 추가
+  const [isAdmin, setIsAdmin] = useState(false); 
   const [reports, setReports] = useState([]);
-  const [qnas, setQnas] = useState([]); // Q&A 상태 추가
+  const [qnas, setQnas] = useState([]); 
   const [holidays, setHolidays] = useState([]);
   const [schedules, setSchedules] = useState({});
-  const [dbManagers, setDbManagers] = useState([]); // 커스텀 추가된 매니저 상태
+  const [dbManagers, setDbManagers] = useState([]); 
+  const [deletedDefaults, setDeletedDefaults] = useState([]); 
   
-  // 재고 관리 상태 (로그 기반으로 변경)
+  // 재고 관리 상태 
   const [inventoryLogs, setInventoryLogs] = useState([]);
   const [adjustType, setAdjustType] = useState('rice');
   const [adjustAmount, setAdjustAmount] = useState('');
-  const [adjustPrice, setAdjustPrice] = useState(''); // 지출/단가 금액 입력
+  const [adjustPrice, setAdjustPrice] = useState(''); 
   const [editLogId, setEditLogId] = useState(null);
   const [editLogData, setEditLogData] = useState(null);
 
@@ -150,7 +151,7 @@ export default function App() {
   const [filterType, setFilterType] = useState('ALL'); 
   const [filterValue, setFilterValue] = useState('');
   const [expandedReportId, setExpandedReportId] = useState(null);
-  const [adminViewMode, setAdminViewMode] = useState('calendar'); // 탭 초기값: 집계 달력
+  const [adminViewMode, setAdminViewMode] = useState('calendar'); 
   const [calendarDate, setCalendarDate] = useState(new Date()); 
   const [editReportId, setEditReportId] = useState(null);
   const [editData, setEditData] = useState(null);
@@ -161,6 +162,7 @@ export default function App() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [selectedPhoto, setSelectedPhoto] = useState(null);
   const [scheduleSelection, setScheduleSelection] = useState(null); 
+  const [scheduleWage, setScheduleWage] = useState(''); 
   const [customScheduleWorker, setCustomScheduleWorker] = useState('');
   const [newManagerName, setNewManagerName] = useState('');
   
@@ -185,7 +187,7 @@ export default function App() {
       usedRice: '', 
       loss: '', 
       leftRice: '', 
-      riceAgreement: false, // 쌀 3박스 확인 동의 상태
+      riceStatus: null, 
       bagStatus: null,
       tieStatus: null,
       otherSupplies: ''
@@ -195,14 +197,19 @@ export default function App() {
     waiting: { hadWaiting: null, lastNumber: '', missedTeams: '' }
   });
 
-  // 통합 매니저 리스트 (고정 + DB 추가)
+  // 활성화된 기본 매니저 (삭제되지 않은 매니저만)
+  const activeDefaults = useMemo(() => {
+    return managerList.filter(m => !deletedDefaults.includes(m));
+  }, [deletedDefaults]);
+
+  // 통합 매니저 리스트 (활성 기본 + DB 추가)
   const allManagers = useMemo(() => {
-    return [...new Set([...managerList, ...dbManagers.map(m => m.name)])];
-  }, [dbManagers]);
+    return [...new Set([...activeDefaults, ...dbManagers.map(m => m.name)])];
+  }, [activeDefaults, dbManagers]);
 
   // Q&A 작성자 기본값을 로드된 매니저의 첫번째로 설정
   useEffect(() => {
-    if (allManagers.length > 0 && !qnaAuthor) {
+    if (allManagers.length > 0 && (!qnaAuthor || !allManagers.includes(qnaAuthor))) {
       setQnaAuthor(allManagers[0]);
     }
   }, [allManagers]);
@@ -239,6 +246,7 @@ export default function App() {
     const schedulesRef = collection(db, 'artifacts', appId, 'public', 'data', 'schedules');
     const managersRef = collection(db, 'artifacts', appId, 'public', 'data', 'managers');
     const inventoryLogsRef = collection(db, 'artifacts', appId, 'public', 'data', 'inventoryLogs');
+    const settingsRef = doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'managerSettings');
     
     const unsubReports = onSnapshot(reportsRef, (snapshot) => {
       const fetched = [];
@@ -262,7 +270,13 @@ export default function App() {
 
     const unsubSchedules = onSnapshot(schedulesRef, (snapshot) => {
       const fetched = {};
-      snapshot.forEach((doc) => fetched[doc.id] = doc.data().manager);
+      snapshot.forEach((doc) => {
+         const data = doc.data();
+         fetched[doc.id] = {
+            manager: data.manager,
+            wage: data.wage || 0
+         };
+      });
       setSchedules(fetched);
     }, (err) => console.error(err));
 
@@ -279,7 +293,13 @@ export default function App() {
       setInventoryLogs(fetched);
     }, (err) => console.error(err));
 
-    return () => { unsubReports(); unsubQna(); unsubHolidays(); unsubSchedules(); unsubManagers(); unsubInventoryLogs(); };
+    const unsubSettings = onSnapshot(settingsRef, (docSnap) => {
+      if (docSnap.exists()) {
+        setDeletedDefaults(docSnap.data().deletedDefaults || []);
+      }
+    }, (err) => console.error(err));
+
+    return () => { unsubReports(); unsubQna(); unsubHolidays(); unsubSchedules(); unsubManagers(); unsubInventoryLogs(); unsubSettings(); };
   }, [user]);
 
   // --- Handlers ---
@@ -324,11 +344,6 @@ export default function App() {
     }
     if (!formData.sales.cash || !formData.sales.card) return setAlertMessage("현금/카드 매출을 모두 입력해 주세요.");
     
-    // 필수 확인 체크 (쌀 동의)
-    if (!formData.inventory.riceAgreement) {
-      return setAlertMessage("내일 사용할 쌀 확인 질문에 '예 알겠습니다.'를 체크해 주세요.");
-    }
-
     if (!user) return setAlertMessage("인증 중입니다. 잠시만 기다려 주세요.");
     setIsSubmitting(true);
     
@@ -390,14 +405,16 @@ export default function App() {
     const { date, location } = scheduleSelection;
     const docId = `${date}_${location}`;
     const finalManager = manager;
+    const wage = Number(parseComma(scheduleWage)) || 0;
 
     try {
       if (manager === 'CLEAR') {
         await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'schedules', docId));
       } else {
-        await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'schedules', docId), { manager: finalManager });
+        await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'schedules', docId), { manager: finalManager, wage: wage });
       }
       setScheduleSelection(null);
+      setScheduleWage('');
     } catch (e) { setAlertMessage("배정 실패: " + e.message); }
   };
 
@@ -454,6 +471,14 @@ export default function App() {
     } catch (e) { setAlertMessage("삭제 실패: " + e.message); }
   };
 
+  const handleRemoveDefaultManager = async (name) => {
+    if (!user) return;
+    try {
+      const newDeleted = [...deletedDefaults, name];
+      await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'settings', 'managerSettings'), { deletedDefaults: newDeleted }, { merge: true });
+    } catch (e) { setAlertMessage("기본 매니저 삭제 실패: " + e.message); }
+  };
+
   // --- Inventory Adjust Handler (Log Based) ---
   const handleAdjustInventory = async (isAdd) => {
     if (!user || !adjustAmount) return;
@@ -506,7 +531,6 @@ export default function App() {
   };
 
   // --- Statistics & Inventory Calculations ---
-  // 누적 입출고 기반의 재고 및 지출액 (품목별 세분화 포함)
   const inventoryTotals = useMemo(() => {
     let rice = 0, tie = 0, bag = 0, totalSpent = 0;
     let riceSpent = 0, tieSpent = 0, bagSpent = 0;
@@ -517,7 +541,6 @@ export default function App() {
       if (log.type === 'tie') tie += log.amount * mult;
       if (log.type === 'bag') bag += log.amount * mult;
 
-      // 지출 금액 합산 및 품목별 분배
       const price = Number(log.price) || 0;
       if (log.action === 'add') {
         totalSpent += price;
@@ -534,7 +557,6 @@ export default function App() {
     return { rice, tie, bag, totalSpent, riceSpent, tieSpent, bagSpent };
   }, [inventoryLogs]);
 
-  // 현재 재고 계산 = (수동 입출고 누적 합산) - (리포트 제출을 통한 자동 차감)
   const currentStock = useMemo(() => {
     let usedRice = 0;
     let usedTieAndBag = 0;
@@ -571,7 +593,7 @@ export default function App() {
     const sang = reports.filter(r => r.location === '상행선').reduce((s, r) => s + (Number(r.totalSales) || 0), 0);
     const ha = reports.filter(r => r.location === '하행선').reduce((s, r) => s + (Number(r.totalSales) || 0), 0);
     const commission = total * 0.4;
-    const profit = total * 0.6; // 사장님 60% 정산
+    const profit = total * 0.6; 
     return { total, cash, card, sang, ha, commission, profit };
   }, [reports]);
 
@@ -580,26 +602,24 @@ export default function App() {
     const month = calendarDate.getMonth();
     const mReports = reports.filter(r => { const d = new Date(r.date); return d.getFullYear() === year && d.getMonth() === month; });
     
-    // Calculate daily total sales
     const dailyMap = {};
     mReports.forEach(r => {
       if (!dailyMap[r.date]) dailyMap[r.date] = 0;
       dailyMap[r.date] += (Number(r.totalSales) || 0);
     });
 
-    // Extract valid days (exclude holidays and days with 0 sales)
     let validDays = Object.keys(dailyMap).filter(date => !holidays.includes(date) && dailyMap[date] > 0);
     let maxDay = null;
     let minDay = null;
 
     if (validDays.length > 0) {
-      validDays.sort((a, b) => dailyMap[b] - dailyMap[a]); // Sort descending by sales
+      validDays.sort((a, b) => dailyMap[b] - dailyMap[a]); 
       maxDay = { date: validDays[0], sales: dailyMap[validDays[0]] };
       minDay = { date: validDays[validDays.length - 1], sales: dailyMap[validDays[validDays.length - 1]] };
     }
 
     const total = mReports.reduce((s, r) => s + (Number(r.totalSales) || 0), 0);
-    const profit = total * 0.6; // 사장님 60% 정산
+    const profit = total * 0.6; 
     const sang = mReports.filter(r => r.location === '상행선').reduce((s, r) => s + (Number(r.totalSales) || 0), 0);
     const ha = mReports.filter(r => r.location === '하행선').reduce((s, r) => s + (Number(r.totalSales) || 0), 0);
     const cash = mReports.reduce((s, r) => s + (Number(r.sales?.cash) || 0), 0);
@@ -617,7 +637,6 @@ export default function App() {
     const avgRicePerDay = uniqueDaysCount > 0 ? (totalRice / uniqueDaysCount).toFixed(1) : 0;
     const cumulativeRiceCost = totalRice * 2500;
     
-    // 신규 추가: 기대매출, 로스/시식 금액, 일평균 매출, 목표 대비 과부족
     const expectedSales = totalRice * 42735;
     const lossAmount = expectedSales - total;
     const avgDailySales = uniqueDaysCount > 0 ? Math.round(total / uniqueDaysCount) : 0;
@@ -636,6 +655,82 @@ export default function App() {
     return result;
   }, [reports, filterType, filterValue]);
 
+  // 스케쥴 및 급여 통합 계산 로직 (4대보험 및 식대 포함) - 업데이트된 기준 반영
+  const scheduleStats = useMemo(() => {
+    const year = calendarDate.getFullYear();
+    const month = calendarDate.getMonth();
+    const managerMonthlyStats = {};
+    let grandTotalWage = 0;
+    let grandTotalMeal = 0;
+    let grandTotalInsurance = 0;
+
+    const FULL_INSURANCE_RATE = 0.0965; // 사업주 부담분 약 9.65% (4대보험 전면)
+    const PARTIAL_INSURANCE_RATE = 0.0215; // 사업주 부담분 약 2.15% (고용/산재만)
+    const MEAL_ALLOWANCE = 9900;
+
+    Object.entries(schedules).forEach(([key, data]) => {
+      const [dateStr, loc] = key.split('_');
+      const d = new Date(dateStr);
+      if (d.getFullYear() === year && d.getMonth() === month && !holidays.includes(dateStr)) {
+        if (!managerMonthlyStats[data.manager]) {
+          managerMonthlyStats[data.manager] = { totalDays: 0, totalWage: 0, sangDays: 0, sangWage: 0, haDays: 0, haWage: 0, weeklyDays: {} };
+        }
+        managerMonthlyStats[data.manager].totalDays += 1;
+        managerMonthlyStats[data.manager].totalWage += (data.wage || 0);
+
+        // Calculate Week Number for "주 15시간(주 2일) 이상" check
+        const wYear = d.getFullYear();
+        const wNum = Math.ceil(((d - new Date(wYear, 0, 1)) / 86400000 + new Date(wYear, 0, 1).getDay() + 1) / 7);
+        const weekKey = `${wYear}-W${wNum}`;
+        managerMonthlyStats[data.manager].weeklyDays[weekKey] = (managerMonthlyStats[data.manager].weeklyDays[weekKey] || 0) + 1;
+
+        if (loc === '상행선') {
+          managerMonthlyStats[data.manager].sangDays += 1;
+          managerMonthlyStats[data.manager].sangWage += (data.wage || 0);
+        } else if (loc === '하행선') {
+          managerMonthlyStats[data.manager].haDays += 1;
+          managerMonthlyStats[data.manager].haWage += (data.wage || 0);
+        }
+      }
+    });
+
+    Object.values(managerMonthlyStats).forEach(stats => {
+      stats.totalHours = stats.totalDays * 10;
+      
+      // 한 주라도 2일 이상(20시간) 근무한 적이 있는지 여부
+      stats.isOver15hPerWeek = Object.values(stats.weeklyDays).some(c => c >= 2);
+      // 월 전체 60시간(6일) 이상 근무 여부
+      stats.isOver60hPerMonth = stats.totalHours >= 60;
+
+      if (stats.isOver15hPerWeek || stats.isOver60hPerMonth) {
+        stats.insuranceType = 'FULL';
+        stats.insuranceRate = FULL_INSURANCE_RATE;
+      } else {
+        stats.insuranceType = 'PARTIAL';
+        stats.insuranceRate = PARTIAL_INSURANCE_RATE;
+      }
+
+      stats.totalMeal = stats.totalDays * MEAL_ALLOWANCE;
+      stats.totalInsurance = Math.round(stats.totalWage * stats.insuranceRate);
+      stats.totalCost = stats.totalWage + stats.totalMeal + stats.totalInsurance;
+
+      grandTotalWage += stats.totalWage;
+      grandTotalMeal += stats.totalMeal;
+      grandTotalInsurance += stats.totalInsurance;
+    });
+
+    return {
+      managerMonthlyStats,
+      grandTotalWage,
+      grandTotalMeal,
+      grandTotalInsurance,
+      grandTotalLaborCost: grandTotalWage + grandTotalMeal + grandTotalInsurance,
+      FULL_INSURANCE_RATE,
+      PARTIAL_INSURANCE_RATE,
+      MEAL_ALLOWANCE
+    };
+  }, [schedules, calendarDate, holidays]);
+
   const downloadCSV = () => {
     const headers = ['일자', '위치', '매니저', '총매출', '현금', '카드', '사용한쌀(kg)', '로스(kg)', '재고(개)', '특이사항'];
     const rows = filteredReports.map(r => [
@@ -649,23 +744,6 @@ export default function App() {
     link.href = URL.createObjectURL(blob);
     link.download = `하트뻥튀기_업무보고_${getTodayString()}.csv`;
     link.click();
-  };
-
-  const getScheduleSummary = (location) => {
-    const year = calendarDate.getFullYear();
-    const month = calendarDate.getMonth();
-    const summary = {};
-    
-    Object.entries(schedules).forEach(([key, manager]) => {
-       const [dateStr, loc] = key.split('_');
-       if (loc === location) {
-         const d = new Date(dateStr);
-         if (d.getFullYear() === year && d.getMonth() === month && !holidays.includes(dateStr)) {
-           summary[manager] = (summary[manager] || 0) + 1;
-         }
-       }
-    });
-    return Object.entries(summary).sort((a, b) => b[1] - a[1]);
   };
 
   const renderCalendar = () => {
@@ -714,13 +792,20 @@ export default function App() {
     for (let d = 1; d <= daysInMonth; d++) {
       const dStr = `${year}-${String(month+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
       const isHoliday = holidays.includes(dStr);
-      const assignedManager = schedules[`${dStr}_${location}`];
+      const scheduleData = schedules[`${dStr}_${location}`];
+      const assignedManager = scheduleData?.manager;
+      const assignedWage = scheduleData?.wage || 0;
       const isToday = dStr === getTodayString();
       
       days.push(
         <div 
           key={d} 
-          onClick={() => !isHoliday && setScheduleSelection({ date: dStr, location })}
+          onClick={() => {
+             if (!isHoliday) {
+                setScheduleSelection({ date: dStr, location });
+                setScheduleWage(scheduleData && scheduleData.wage ? String(scheduleData.wage) : '');
+             }
+          }}
           className={`p-1 border min-h-[70px] flex flex-col rounded-lg transition-all ${isToday ? 'border-red-500 border-2' : 'border-gray-200'} ${isHoliday ? 'bg-gray-50 border-gray-100 cursor-not-allowed opacity-50' : 'cursor-pointer hover:border-gray-900 bg-white active:scale-95'}`}
         >
           <span className={`text-xs font-black ${isToday ? 'text-red-500' : isHoliday ? 'text-gray-300' : 'text-gray-400'}`}>{d}</span>
@@ -728,8 +813,9 @@ export default function App() {
              <div className="mt-auto bg-gray-200 text-gray-400 p-1 rounded text-center text-[10px] font-black font-sans uppercase">휴무</div>
           )}
           {!isHoliday && assignedManager && (
-            <div className={`mt-auto px-0 py-[2px] rounded text-center text-[9px] font-black animate-in fade-in zoom-in font-sans border whitespace-nowrap overflow-hidden text-ellipsis tracking-tighter ${getManagerColor(assignedManager)}`}>
-              {assignedManager}
+            <div className={`mt-auto px-0 py-[2px] rounded text-center text-[9px] font-black animate-in fade-in zoom-in font-sans border whitespace-nowrap overflow-hidden text-ellipsis tracking-tighter flex flex-col ${getManagerColor(assignedManager)}`}>
+              <span>{assignedManager}</span>
+              {assignedWage > 0 && <span className="text-[7px] border-t border-black/10 pt-[1px] mt-[1px] opacity-80">{formatComma(assignedWage)}원</span>}
             </div>
           )}
         </div>
@@ -758,9 +844,6 @@ export default function App() {
           </button>
           <button onClick={() => { setView('manual_close'); setIsMenuOpen(false); }} className={`w-full flex items-center gap-3 p-4 rounded-2xl font-black transition-all ${view === 'manual_close' ? 'bg-rose-600 text-white shadow-lg' : 'text-gray-600 hover:bg-gray-100'}`}>
             <Clock size={20}/> 마감 매뉴얼
-          </button>
-          <button onClick={() => { setView('schedule'); setIsMenuOpen(false); }} className={`w-full flex items-center gap-3 p-4 rounded-2xl font-black transition-all ${view === 'schedule' ? 'bg-rose-600 text-white shadow-lg' : 'text-gray-600 hover:bg-gray-100'}`}>
-            <Calendar size={20}/> 근무자 스케쥴
           </button>
           <div className="pt-8 mt-8 border-t-2 border-gray-100">
             <button onClick={() => { setView('login'); setIsMenuOpen(false); }} className="w-full flex items-center gap-3 p-4 rounded-2xl font-black text-gray-400 hover:text-gray-900 transition-all font-black">
@@ -852,7 +935,7 @@ export default function App() {
             <div className="flex flex-wrap bg-gray-100 p-2 rounded-[32px] border-2 border-gray-200 font-black">
               <button onClick={()=>setAdminViewMode('calendar')} className={`flex-1 min-w-[80px] py-4 rounded-2xl text-sm font-black transition-all ${adminViewMode==='calendar'?'bg-white shadow-xl text-gray-900':'text-gray-500'}`}>집계 달력</button>
               <button onClick={()=>setAdminViewMode('list')} className={`flex-1 min-w-[80px] py-4 rounded-2xl text-sm font-black transition-all ${adminViewMode==='list'?'bg-white shadow-xl text-gray-900':'text-gray-500'}`}>리포트 목록</button>
-              <button onClick={()=>setAdminViewMode('sales')} className={`flex-1 min-w-[80px] py-4 rounded-2xl text-sm font-black transition-all ${adminViewMode==='sales'?'bg-white shadow-xl text-gray-900':'text-gray-500'}`}>매출/매니저</button>
+              <button onClick={()=>setAdminViewMode('labor')} className={`flex-1 min-w-[80px] py-4 rounded-2xl text-sm font-black transition-all ${adminViewMode==='labor'?'bg-white shadow-xl text-gray-900':'text-gray-500'}`}>근로/급여</button>
               <button onClick={()=>setAdminViewMode('inventory')} className={`flex-1 min-w-[80px] py-4 rounded-2xl text-sm font-black transition-all ${adminViewMode==='inventory'?'bg-white shadow-xl text-gray-900':'text-gray-500'}`}>재고 관리</button>
             </div>
 
@@ -921,11 +1004,70 @@ export default function App() {
                   </div>
 
                 </div>
+
+                {/* 시스템 전체 통계 */}
+                <div className="bg-white p-10 rounded-[56px] border-4 border-gray-900 shadow-2xl space-y-12">
+                   <div className="text-center space-y-4">
+                      <div className="inline-flex items-center gap-3 bg-rose-50 text-rose-600 px-6 py-2 rounded-full border border-rose-200 font-black text-sm uppercase tracking-widest font-black"><TrendingUp size={18}/> 시스템 전체 기간 매출 통계</div>
+                      <h3 className="text-xl font-black text-gray-900">시스템 전체 기간 매출 통계</h3>
+                   </div>
+                   <div className="space-y-6">
+                      <div className="bg-gray-900 p-8 rounded-[40px] text-white flex flex-col items-center justify-center space-y-2 shadow-xl border-4 border-gray-800">
+                         <span className="text-xs font-black opacity-50 uppercase tracking-[0.2em] font-black">총 누적 매출</span>
+                         <span className="text-4xl font-black tracking-tight">{allTimeStats.total.toLocaleString()}</span>
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 font-black font-black">
+                         <div className="bg-rose-600 p-8 rounded-[40px] text-white flex flex-col items-center justify-center space-y-2 shadow-xl border-4 border-rose-500 font-black">
+                            <div className="flex items-center gap-2"><Percent size={14}/><span className="text-xs font-black opacity-70 uppercase tracking-[0.2em]">누적 판매 수수료 (40%)</span></div>
+                            <span className="text-3xl font-black tracking-tight">{allTimeStats.commission.toLocaleString()}</span>
+                         </div>
+                         <div className="bg-blue-600 p-8 rounded-[40px] text-white flex flex-col items-center justify-center space-y-2 shadow-xl border-4 border-blue-500 font-black">
+                            <div className="flex items-center gap-2"><PiggyBank size={14}/><span className="text-xs font-black opacity-70 uppercase tracking-[0.2em]">누적 영업이익 (60%)</span></div>
+                            <span className="text-3xl font-black tracking-tight">{allTimeStats.profit.toLocaleString()}</span>
+                         </div>
+                      </div>
+                      <div className="grid grid-cols-2 gap-6 font-black">
+                         <div className="bg-white p-8 rounded-[40px] border-4 border-gray-900 flex flex-col items-center justify-center space-y-2 shadow-lg">
+                            <Coins className="text-amber-500" size={32}/>
+                            <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest font-black">누적 현금 매출</span>
+                            <span className="text-xl font-black text-gray-900">{allTimeStats.cash.toLocaleString()}</span>
+                         </div>
+                         <div className="bg-white p-8 rounded-[40px] border-4 border-gray-900 flex flex-col items-center justify-center space-y-2 shadow-lg">
+                            <CreditCard className="text-blue-500" size={32}/>
+                            <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest font-black">누적 카드 매출</span>
+                            <span className="text-xl font-black text-gray-900">{allTimeStats.card.toLocaleString()}</span>
+                         </div>
+                      </div>
+                      <div className="grid grid-cols-2 gap-6 font-black">
+                         <div className="bg-red-50 p-8 rounded-[40px] border-4 border-red-200 flex flex-col items-center justify-center space-y-2 shadow-sm font-black">
+                            <MapPin className="text-red-500" size={32}/>
+                            <span className="text-[10px] font-black text-red-300 uppercase tracking-widest font-black">상행선 누적 매출</span>
+                            <span className="text-xl font-black text-red-600">{allTimeStats.sang.toLocaleString()}원</span>
+                         </div>
+                         <div className="bg-blue-50 p-8 rounded-[40px] border-4 border-blue-200 flex flex-col items-center justify-center space-y-2 shadow-sm font-black">
+                            <MapPin className="text-blue-500" size={32}/>
+                            <span className="text-[10px] font-black text-blue-300 uppercase tracking-widest font-black">하행선 누적 매출</span>
+                            <span className="text-xl font-black text-blue-600">{allTimeStats.ha.toLocaleString()}원</span>
+                         </div>
+                      </div>
+                   </div>
+                </div>
               </div>
             )}
 
-            {adminViewMode === 'sales' && (
+            {adminViewMode === 'labor' && (
               <div className="space-y-6 animate-in fade-in font-black font-black">
+                 {/* 근로 기준 및 4대보험 안내 */}
+                 <div className="bg-blue-50 p-6 rounded-[32px] border-2 border-blue-200 shadow-sm space-y-3 font-black">
+                   <h4 className="text-blue-800 text-lg font-black flex items-center gap-2"><AlertCircle size={20}/> 근로 기준 및 4대보험 가입 안내</h4>
+                   <ul className="text-xs text-blue-700 space-y-1.5 list-disc pl-5 leading-relaxed">
+                     <li>매니저가 1일 근무 시 <strong>실 근로시간은 10시간</strong> 기준입니다.</li>
+                     <li><strong>주 15시간 이상(한 주에 2일 이상)</strong> 또는 <strong>월 60시간 이상(월 6일 이상)</strong> 근무 시 <strong>4대보험 전면 가입</strong> 대상입니다. (사업주 부담 약 9.65%)</li>
+                     <li>위 조건 미달 시(월 60시간 미만 단시간 근로)에는 <strong>고용보험, 산재보험만 가입</strong>됩니다. (연금/건강 미가입, 사업주 부담 약 2.15%)</li>
+                     <li>예상 인건비는 <strong>1일 급여 + 자동 계산된 해당 보험료 + 1일 식대(9,900원)</strong>가 합산되어 노출됩니다.</li>
+                   </ul>
+                 </div>
+
                  {/* 매니저 이름 추가 및 삭제 패널 */}
                  <div className="bg-white p-8 rounded-[48px] border-4 border-gray-900 shadow-2xl space-y-6">
                     <h3 className="text-xl font-black text-gray-900 border-l-8 border-rose-600 pl-4 py-1">매니저 명단 관리</h3>
@@ -943,12 +1085,13 @@ export default function App() {
                     </div>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-4">
                        {/* 기본 매니저 렌더링 */}
-                       {managerList.map(m => (
+                       {activeDefaults.map(m => (
                           <div key={m} className="flex justify-between items-center p-4 bg-gray-50 rounded-2xl border-2 border-gray-100">
                              <div className="flex items-center gap-3">
                                 <div className={`w-3 h-3 rounded-full ${getManagerColor(m)} border`}></div>
                                 <span className="font-black text-gray-600">{m} <span className="text-[10px] text-gray-400 ml-1">(기본)</span></span>
                              </div>
+                             <button onClick={()=>handleRemoveDefaultManager(m)} className="p-2 text-gray-300 hover:text-red-500 transition-colors"><UserMinus size={18}/></button>
                           </div>
                        ))}
                        {/* DB 추가 매니저 렌더링 */}
@@ -965,50 +1108,114 @@ export default function App() {
                     <p className="text-[10px] text-gray-400 italic text-center">* 여기서 추가된 이름은 업무보고 작성 폼과 스케쥴 배정 목록에 자동으로 나타납니다.</p>
                  </div>
 
-                 <div className="bg-white p-10 rounded-[56px] border-4 border-gray-900 shadow-2xl space-y-12">
-                    <div className="text-center space-y-4">
-                       <div className="inline-flex items-center gap-3 bg-rose-50 text-rose-600 px-6 py-2 rounded-full border border-rose-200 font-black text-sm uppercase tracking-widest font-black"><TrendingUp size={18}/> 시스템 전체 기간 매출 통계</div>
-                       <h3 className="text-xl font-black text-gray-900">시스템 전체 기간 매출 통계</h3>
+                 {/* 근무자 스케쥴 관리 패널 */}
+                 <div className="bg-white p-10 rounded-[56px] border-4 border-gray-900 shadow-2xl space-y-10 mt-12">
+                    <div className="text-center space-y-4 mb-4">
+                       <div className="inline-flex items-center gap-3 bg-blue-50 text-blue-600 px-6 py-2 rounded-full border border-blue-200 font-black text-sm uppercase tracking-widest font-black"><CalendarDays size={18}/> 이번 달 근무자 스케쥴 관리</div>
+                       <h3 className="text-xl font-black text-gray-900">근무자 스케쥴 관리</h3>
                     </div>
-                    <div className="space-y-6">
-                       <div className="bg-gray-900 p-8 rounded-[40px] text-white flex flex-col items-center justify-center space-y-2 shadow-xl border-4 border-gray-800">
-                          <span className="text-xs font-black opacity-50 uppercase tracking-[0.2em] font-black">총 누적 매출</span>
-                          <span className="text-4xl font-black tracking-tight">{allTimeStats.total.toLocaleString()}</span>
-                       </div>
-                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 font-black font-black">
-                          <div className="bg-rose-600 p-8 rounded-[40px] text-white flex flex-col items-center justify-center space-y-2 shadow-xl border-4 border-rose-500 font-black">
-                             <div className="flex items-center gap-2"><Percent size={14}/><span className="text-xs font-black opacity-70 uppercase tracking-[0.2em]">누적 판매 수수료 (40%)</span></div>
-                             <span className="text-3xl font-black tracking-tight">{allTimeStats.commission.toLocaleString()}</span>
-                          </div>
-                          <div className="bg-blue-600 p-8 rounded-[40px] text-white flex flex-col items-center justify-center space-y-2 shadow-xl border-4 border-blue-500 font-black">
-                             <div className="flex items-center gap-2"><PiggyBank size={14}/><span className="text-xs font-black opacity-70 uppercase tracking-[0.2em]">누적 영업이익 (60%)</span></div>
-                             <span className="text-3xl font-black tracking-tight">{allTimeStats.profit.toLocaleString()}</span>
-                          </div>
-                       </div>
-                       <div className="grid grid-cols-2 gap-6 font-black">
-                          <div className="bg-white p-8 rounded-[40px] border-4 border-gray-900 flex flex-col items-center justify-center space-y-2 shadow-lg">
-                             <Coins className="text-amber-500" size={32}/>
-                             <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest font-black">누적 현금 매출</span>
-                             <span className="text-xl font-black text-gray-900">{allTimeStats.cash.toLocaleString()}</span>
-                          </div>
-                          <div className="bg-white p-8 rounded-[40px] border-4 border-gray-900 flex flex-col items-center justify-center space-y-2 shadow-lg">
-                             <CreditCard className="text-blue-500" size={32}/>
-                             <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest font-black">누적 카드 매출</span>
-                             <span className="text-xl font-black text-gray-900">{allTimeStats.card.toLocaleString()}</span>
-                          </div>
-                       </div>
-                       <div className="grid grid-cols-2 gap-6 font-black">
-                          <div className="bg-red-50 p-8 rounded-[40px] border-4 border-red-200 flex flex-col items-center justify-center space-y-2 shadow-sm font-black">
-                             <MapPin className="text-red-500" size={32}/>
-                             <span className="text-[10px] font-black text-red-300 uppercase tracking-widest font-black">상행선 누적 매출</span>
-                             <span className="text-xl font-black text-red-600">{allTimeStats.sang.toLocaleString()}원</span>
-                          </div>
-                          <div className="bg-blue-50 p-8 rounded-[40px] border-4 border-blue-200 flex flex-col items-center justify-center space-y-2 shadow-sm font-black">
-                             <MapPin className="text-blue-500" size={32}/>
-                             <span className="text-[10px] font-black text-blue-300 uppercase tracking-widest font-black">하행선 누적 매출</span>
-                             <span className="text-xl font-black text-blue-600">{allTimeStats.ha.toLocaleString()}원</span>
-                          </div>
-                       </div>
+                    
+                    <div className="flex justify-between items-center px-4 mb-8 bg-gray-50 p-4 rounded-3xl border-2 border-gray-100">
+                      <button onClick={()=>setCalendarDate(new Date(calendarDate.getFullYear(), calendarDate.getMonth()-1, 1))} className="p-3 bg-white rounded-full hover:bg-gray-200 shadow-sm border-2 border-gray-200"><ChevronLeft size={24}/></button>
+                      <span className="font-black text-2xl text-gray-900">{calendarDate.getFullYear()}년 {calendarDate.getMonth()+1}월</span>
+                      <button onClick={()=>setCalendarDate(new Date(calendarDate.getFullYear(), calendarDate.getMonth()+1, 1))} className="p-3 bg-white rounded-full hover:bg-gray-200 shadow-sm border-2 border-gray-200"><ChevronRight size={24}/></button>
+                    </div>
+
+                    {/* 월 총 인건비 요약 대시보드 */}
+                    <div className="bg-gray-900 p-8 rounded-[40px] text-white shadow-xl space-y-6 relative overflow-hidden mb-8 border-4 border-gray-800">
+                      <div className="relative z-10 text-center space-y-2">
+                        <p className="text-rose-400 text-xs font-black uppercase tracking-widest flex items-center justify-center gap-2">
+                           <DollarSign size={16}/> 이번 달 총 예상 인건비
+                        </p>
+                        <p className="text-5xl font-black tracking-tight text-white">{scheduleStats.grandTotalLaborCost.toLocaleString()}원</p>
+                      </div>
+                      <div className="relative z-10 grid grid-cols-3 gap-2 sm:gap-4 pt-6 border-t-2 border-gray-700">
+                        <div className="text-center">
+                          <p className="text-[10px] text-gray-400 mb-1">총 예상 급여</p>
+                          <p className="text-lg sm:text-xl font-black">{scheduleStats.grandTotalWage.toLocaleString()}원</p>
+                        </div>
+                        <div className="text-center border-x-2 border-gray-700">
+                          <p className="text-[10px] text-gray-400 mb-1 leading-tight">총 4대보험/고용산재<br/>(사업주 부담분)</p>
+                          <p className="text-lg sm:text-xl font-black">{scheduleStats.grandTotalInsurance.toLocaleString()}원</p>
+                        </div>
+                        <div className="text-center">
+                          <p className="text-[10px] text-gray-400 mb-1 leading-tight">총 식대<br/>(9,900원/일)</p>
+                          <p className="text-lg sm:text-xl font-black">{scheduleStats.grandTotalMeal.toLocaleString()}원</p>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* 상행선 스케쥴 */}
+                    <div className="space-y-4">
+                      <div className="flex items-center gap-2 border-l-8 border-red-600 pl-4 py-1">
+                        <h2 className="text-xl font-black text-gray-900 uppercase tracking-tighter">상행선 스케쥴</h2>
+                      </div>
+                      <div className="bg-white p-4 rounded-[40px] border-4 border-gray-900 shadow-xl">
+                        <div className="grid grid-cols-7 gap-1 text-center mb-3 text-[10px] font-black text-gray-400">
+                          {['SUN','MON','TUE','WED','THU','FRI','SAT'].map(d=><div key={d}>{d}</div>)}
+                        </div>
+                        <div className="grid grid-cols-7 gap-1">{renderScheduleCalendar('상행선')}</div>
+                      </div>
+                    </div>
+
+                    {/* 하행선 스케쥴 */}
+                    <div className="space-y-4 mt-8">
+                      <div className="flex items-center gap-2 border-l-8 border-blue-600 pl-4 py-1">
+                        <h2 className="text-xl font-black text-gray-900 uppercase tracking-tighter">하행선 스케쥴</h2>
+                      </div>
+                      <div className="bg-white p-4 rounded-[40px] border-4 border-gray-900 shadow-xl">
+                        <div className="grid grid-cols-7 gap-1 text-center mb-3 text-[10px] font-black text-gray-400">
+                          {['SUN','MON','TUE','WED','THU','FRI','SAT'].map(d=><div key={d}>{d}</div>)}
+                        </div>
+                        <div className="grid grid-cols-7 gap-1">{renderScheduleCalendar('하행선')}</div>
+                      </div>
+                    </div>
+
+                    {/* 통합 근무 스케쥴 및 급여 합산 */}
+                    <div className="mt-12 space-y-4">
+                      <div className="flex items-center gap-2 border-l-8 border-purple-600 pl-4 py-1">
+                        <h2 className="text-xl font-black text-gray-900 uppercase tracking-tighter">이번 달 통합 근무 일수 및 예상 급여 (인건비 합산)</h2>
+                      </div>
+                      <div className="bg-white p-4 rounded-[40px] border-4 border-gray-900 shadow-xl">
+                        <div className="flex flex-col gap-3">
+                          {Object.entries(scheduleStats.managerMonthlyStats).filter(([_, s]) => s.totalDays > 0).sort((a, b) => b[1].totalDays - a[1].totalDays).length > 0 ? (
+                             Object.entries(scheduleStats.managerMonthlyStats)
+                               .filter(([_, stats]) => stats.totalDays > 0)
+                               .sort((a, b) => b[1].totalDays - a[1].totalDays)
+                               .map(([mgr, stats]) => {
+                                  return (
+                                     <div key={mgr} className={`p-4 rounded-3xl border-2 flex flex-col gap-3 shadow-sm ${getManagerColor(mgr)}`}>
+                                        <div className="flex justify-between items-center border-b border-black/10 pb-2">
+                                          <span className="text-sm font-black">{mgr} 매니저</span>
+                                          <div className="flex items-center gap-1">
+                                             <span className="bg-white/90 px-2 py-1 rounded-lg text-[10px] font-black border border-black/5 shadow-sm">총 {stats.totalDays}일 근무 (상:{stats.sangDays}/하:{stats.haDays})</span>
+                                             {stats.insuranceType === 'FULL' ? (
+                                                <span className="bg-blue-100 text-blue-700 px-2 py-1 rounded-lg text-[10px] font-black border border-blue-200 shadow-sm">4대보험 (9.65%)</span>
+                                             ) : (
+                                                <span className="bg-orange-100 text-orange-700 px-2 py-1 rounded-lg text-[10px] font-black border border-orange-200 shadow-sm">고용·산재 (2.15%)</span>
+                                             )}
+                                          </div>
+                                        </div>
+                                        <div className="grid grid-cols-2 gap-2 text-xs font-black">
+                                          <div className="bg-white/60 p-2 rounded-xl border border-black/5 flex justify-between"><span>기본 급여</span><span>{stats.totalWage.toLocaleString()}원</span></div>
+                                          <div className="bg-white/60 p-2 rounded-xl border border-black/5 flex justify-between"><span>식대 (일 9.9k)</span><span>{stats.totalMeal.toLocaleString()}원</span></div>
+                                          <div className="bg-white/60 p-2 rounded-xl border border-black/5 flex justify-between col-span-2 text-blue-800">
+                                            <span>{stats.insuranceType === 'FULL' ? '4대보험료 (사업주 9.65%)' : '고용/산재 (사업주 2.15%)'}</span>
+                                            <span>{stats.totalInsurance.toLocaleString()}원</span>
+                                          </div>
+                                        </div>
+                                        <div className="bg-white/90 p-3 rounded-xl border border-black/10 flex justify-between items-center shadow-inner mt-1">
+                                          <span className="text-xs font-black opacity-80">인건비 합계</span>
+                                          <span className="text-lg font-black">{stats.totalCost.toLocaleString()}원</span>
+                                        </div>
+                                     </div>
+                                  );
+                               })
+                          ) : (
+                            <span className="text-xs text-gray-400 font-black px-2">배정된 근무자가 없습니다.</span>
+                          )}
+                        </div>
+                      </div>
                     </div>
                  </div>
               </div>
@@ -1265,12 +1472,23 @@ export default function App() {
                                   </div>
                                 </div>
                              </div>
-                             <div className={`p-5 rounded-2xl border-4 ${r.inventory?.hasRiceForNextDay !== false ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'} font-black`}>
-                               <p className="text-[10px] text-gray-400 mb-1 uppercase font-black">익일 쌀 상태</p>
-                               <p className={`text-lg font-black ${r.inventory?.hasRiceForNextDay !== false ? 'text-green-700' : 'text-red-700'}`}>
-                                 {r.inventory?.hasRiceForNextDay !== false ? '확인됨 (충분)' : `부족함 (남은양: ${r.inventory?.remainingRiceAmount || '미기입'})`}
-                               </p>
+
+                             <div className="bg-gray-50 p-4 rounded-2xl border-2 border-gray-100 font-black mt-4">
+                                <p className="text-[10px] text-gray-400 mb-2 uppercase tracking-widest font-sans font-black">익일 자재 상태</p>
+                                <div className="flex justify-between items-center mb-1 text-gray-900">
+                                  <span className="text-xs text-gray-500">뻥쌀</span>
+                                  <span className={r.inventory?.riceStatus === '부족' ? 'text-red-600' : 'text-blue-600'}>{r.inventory?.riceStatus || '미기입'}</span>
+                                </div>
+                                <div className="flex justify-between items-center mb-1 text-gray-900">
+                                  <span className="text-xs text-gray-500">포장 비닐</span>
+                                  <span className={r.inventory?.bagStatus === '부족' ? 'text-red-600' : 'text-blue-600'}>{r.inventory?.bagStatus || '미기입'}</span>
+                                </div>
+                                <div className="flex justify-between items-center text-gray-900">
+                                  <span className="text-xs text-gray-500">빵끈</span>
+                                  <span className={r.inventory?.tieStatus === '부족' ? 'text-red-600' : 'text-blue-600'}>{r.inventory?.tieStatus || '미기입'}</span>
+                                </div>
                              </div>
+
                              <div className="bg-gray-900 p-6 rounded-3xl text-white italic leading-relaxed shadow-xl font-black">
                                <p className="text-[10px] text-gray-400 mb-2 uppercase tracking-widest not-italic font-sans font-black">매니저 전달사항</p>
                                "{r.notes || '전달사항 없음'}"
@@ -1297,6 +1515,44 @@ export default function App() {
               </div>
             )}
           </div>
+
+          {/* 관리자 모드에서만 나타나는 스케쥴 배정 팝업 */}
+          {view === 'admin' && scheduleSelection && (
+            <div className="fixed inset-0 bg-black/90 z-[300] flex items-center justify-center p-8 backdrop-blur-md animate-in fade-in duration-300">
+              <div className="bg-white p-10 rounded-[56px] w-full max-w-sm border-[10px] border-gray-900 shadow-2xl animate-in zoom-in-95 font-black">
+                <div className="flex justify-between items-center mb-8">
+                  <div>
+                    <p className="text-[10px] text-gray-400 uppercase tracking-widest">{scheduleSelection.location}</p>
+                    <h3 className="text-3xl font-black text-gray-900">{scheduleSelection.date}</h3>
+                  </div>
+                  <button onClick={()=>setScheduleSelection(null)} className="p-3 bg-gray-100 rounded-2xl"><X size={24}/></button>
+                </div>
+                
+                <div className="mb-6 space-y-2">
+                  <label className="text-xs text-gray-500 font-black uppercase tracking-widest pl-2">해당일 근무 임금 (선택)</label>
+                  <input
+                    type="text"
+                    value={formatComma(scheduleWage)}
+                    onChange={e => setScheduleWage(parseComma(e.target.value))}
+                    className="w-full p-4 bg-gray-100 rounded-2xl border-none outline-none font-black text-right text-gray-900 text-xl shadow-inner focus:ring-4 ring-blue-200"
+                    placeholder="0 원"
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-3 mb-6">
+                  {allManagers.map(m => (
+                    <button key={m} onClick={() => assignWorkerToSchedule(m)} className={`py-5 rounded-3xl border-4 transition-all font-black text-sm ${getManagerColor(m)}`}>
+                      {m} 배정
+                    </button>
+                  ))}
+                </div>
+
+                <button onClick={() => assignWorkerToSchedule('CLEAR')} className="w-full py-5 bg-red-50 text-red-600 rounded-3xl font-black border-4 border-red-100 flex items-center justify-center gap-2 shadow-sm">
+                  <Trash2 size={20}/> 배정 삭제
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       );
     }
@@ -1416,108 +1672,6 @@ export default function App() {
       );
     }
 
-    if (view === 'schedule') {
-      return (
-        <div className="max-w-md mx-auto bg-white min-h-screen pb-40 font-sans animate-in fade-in font-black">
-          <header className="bg-white p-6 border-b-4 border-gray-900 flex justify-between items-center sticky top-0 z-20 shadow-md">
-            <button onClick={() => setIsMenuOpen(true)} className="p-3 bg-gray-100 rounded-2xl active:scale-90 font-black"><Menu size={24}/></button>
-            <h1 className="font-black text-gray-900 text-xl tracking-tight">하트뻥튀기 (처인휴게소)</h1>
-            <div className="w-10"></div>
-          </header>
-          
-          <div className="p-4 space-y-10">
-            <div className="flex justify-between items-center px-4">
-              <button onClick={()=>setCalendarDate(new Date(calendarDate.getFullYear(), calendarDate.getMonth()-1, 1))} className="p-3 bg-gray-100 rounded-full hover:bg-gray-200"><ChevronLeft size={24}/></button>
-              <span className="font-black text-2xl text-gray-900">{calendarDate.getFullYear()}년 {calendarDate.getMonth()+1}월</span>
-              <button onClick={()=>setCalendarDate(new Date(calendarDate.getFullYear(), calendarDate.getMonth()+1, 1))} className="p-3 bg-gray-100 rounded-full hover:bg-gray-200"><ChevronRight size={24}/></button>
-            </div>
-
-            {/* 상행선 스케쥴 */}
-            <div className="space-y-4">
-              <div className="flex items-center gap-2 border-l-8 border-red-600 pl-4 py-1">
-                <h2 className="text-xl font-black text-gray-900 uppercase tracking-tighter">상행선 스케쥴</h2>
-              </div>
-              <div className="bg-white p-4 rounded-[40px] border-4 border-gray-900 shadow-xl">
-                <div className="grid grid-cols-7 gap-1 text-center mb-3 text-[10px] font-black text-gray-400">
-                  {['SUN','MON','TUE','WED','THU','FRI','SAT'].map(d=><div key={d}>{d}</div>)}
-                </div>
-                <div className="grid grid-cols-7 gap-1">{renderScheduleCalendar('상행선')}</div>
-                
-                {/* --- ADDED FEATURE 2 --- */}
-                <div className="mt-6 pt-4 border-t-2 border-dashed border-gray-100">
-                  <h4 className="text-[10px] font-black text-gray-400 mb-3 uppercase tracking-tighter">이번 달 상행선 근무 일수 요약</h4>
-                  <div className="flex flex-wrap gap-2">
-                    {getScheduleSummary('상행선').length > 0 ? getScheduleSummary('상행선').map(([mgr, count]) => (
-                      <div key={mgr} className={`px-3 py-2 rounded-xl text-xs font-black border-2 flex items-center gap-2 ${getManagerColor(mgr)}`}>
-                        <span>{mgr}</span>
-                        <span className="bg-white/80 px-2 py-0.5 rounded-lg shadow-sm">{count}일</span>
-                      </div>
-                    )) : (
-                      <span className="text-xs text-gray-400 font-black px-2">배정된 근무자가 없습니다.</span>
-                    )}
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* 하행선 스케쥴 */}
-            <div className="space-y-4">
-              <div className="flex items-center gap-2 border-l-8 border-blue-600 pl-4 py-1">
-                <h2 className="text-xl font-black text-gray-900 uppercase tracking-tighter">하행선 스케쥴</h2>
-              </div>
-              <div className="bg-white p-4 rounded-[40px] border-4 border-gray-900 shadow-xl">
-                <div className="grid grid-cols-7 gap-1 text-center mb-3 text-[10px] font-black text-gray-400">
-                  {['SUN','MON','TUE','WED','THU','FRI','SAT'].map(d=><div key={d}>{d}</div>)}
-                </div>
-                <div className="grid grid-cols-7 gap-1">{renderScheduleCalendar('하행선')}</div>
-
-                {/* --- ADDED FEATURE 2 --- */}
-                <div className="mt-6 pt-4 border-t-2 border-dashed border-gray-100">
-                  <h4 className="text-[10px] font-black text-gray-400 mb-3 uppercase tracking-tighter">이번 달 하행선 근무 일수 요약</h4>
-                  <div className="flex flex-wrap gap-2">
-                    {getScheduleSummary('하행선').length > 0 ? getScheduleSummary('하행선').map(([mgr, count]) => (
-                      <div key={mgr} className={`px-3 py-2 rounded-xl text-xs font-black border-2 flex items-center gap-2 ${getManagerColor(mgr)}`}>
-                        <span>{mgr}</span>
-                        <span className="bg-white/80 px-2 py-0.5 rounded-lg shadow-sm">{count}일</span>
-                      </div>
-                    )) : (
-                      <span className="text-xs text-gray-400 font-black px-2">배정된 근무자가 없습니다.</span>
-                    )}
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* 스케쥴 배정 팝업 */}
-          {scheduleSelection && (
-            <div className="fixed inset-0 bg-black/90 z-[300] flex items-center justify-center p-8 backdrop-blur-md animate-in fade-in duration-300">
-              <div className="bg-white p-10 rounded-[56px] w-full max-w-sm border-[10px] border-gray-900 shadow-2xl animate-in zoom-in-95 font-black">
-                <div className="flex justify-between items-center mb-8">
-                  <div>
-                    <p className="text-[10px] text-gray-400 uppercase tracking-widest">{scheduleSelection.location}</p>
-                    <h3 className="text-3xl font-black text-gray-900">{scheduleSelection.date}</h3>
-                  </div>
-                  <button onClick={()=>setScheduleSelection(null)} className="p-3 bg-gray-100 rounded-2xl"><X size={24}/></button>
-                </div>
-                <div className="grid grid-cols-2 gap-3 mb-6">
-                  {allManagers.map(m => (
-                    <button key={m} onClick={() => assignWorkerToSchedule(m)} className={`py-5 rounded-3xl border-4 transition-all font-black text-sm ${getManagerColor(m)}`}>
-                      {m}
-                    </button>
-                  ))}
-                </div>
-
-                <button onClick={() => assignWorkerToSchedule('CLEAR')} className="w-full py-5 bg-red-50 text-red-600 rounded-3xl font-black border-4 border-red-100 flex items-center justify-center gap-2 shadow-sm">
-                  <Trash2 size={20}/> 배정 삭제
-                </button>
-              </div>
-            </div>
-          )}
-        </div>
-      );
-    }
-
     return (
       <div className="max-w-md mx-auto bg-white min-h-screen pb-20 font-sans font-black">
         <header className="bg-white p-6 border-b-4 border-gray-900 sticky top-0 z-20 flex justify-between items-center shadow-md font-black">
@@ -1565,7 +1719,7 @@ export default function App() {
                   <label className="text-lg text-gray-900 font-black">영업 위치</label>
                   <div className="flex gap-3 font-black">
                     {['상행선','하행선'].map(l=>(
-                      <button key={l} onClick={()=>setFormData({...formData, location:l})} className={`px-7 py-4 rounded-2xl text-base font-black border-4 transition-all duration-300 active:scale-90 shadow-sm ${formData.location === l ? (l === '상행선' ? 'bg-red-600 border-red-600 text-white shadow-xl' : 'bg-white border-gray-100 text-gray-300') : 'bg-white border-gray-100 text-gray-300'} font-black`}>{l}</button>
+                      <button key={l} onClick={()=>setFormData({...formData, location:l})} className={`px-7 py-4 rounded-2xl text-base font-black border-4 transition-all duration-300 active:scale-90 shadow-sm ${formData.location === l ? (l === '상행선' ? 'bg-red-600 border-red-600 text-white shadow-xl' : 'bg-blue-600 border-blue-600 text-white shadow-xl') : 'bg-white border-gray-100 text-gray-300'} font-black`}>{l}</button>
                     ))}
                   </div>
                </div>
@@ -1608,7 +1762,7 @@ export default function App() {
                 <input type="number" value={formData.inventory.stockCount} onChange={e=>setFormData({...formData, inventory:{...formData.inventory, stockCount:e.target.value}})} className="w-full p-4 bg-gray-100 rounded-[24px] border-none outline-none font-black text-right text-gray-900 text-xl shadow-inner focus:ring-4 ring-rose-200" placeholder="0" />
               </div>
               <div className="space-y-1">
-                <label className="text-[10px] text-gray-900 ml-1 uppercase font-sans font-black">쌀(kg)</label>
+                <label className="text-[10px] text-gray-900 ml-1 uppercase font-sans font-black">오늘 사용한 쌀(kg)</label>
                 <input type="number" value={formData.inventory.usedRice} onChange={e=>setFormData({...formData, inventory:{...formData.inventory, usedRice:e.target.value}})} className="w-full p-4 bg-gray-100 rounded-[24px] border-none outline-none font-black text-right text-gray-900 text-xl shadow-inner focus:ring-4 ring-rose-200" placeholder="0" />
               </div>
               <div className="space-y-1">
@@ -1618,31 +1772,23 @@ export default function App() {
             </div>
             
             <div className="pt-8 border-t-2 border-dashed border-gray-100 space-y-8 font-black font-black">
-               {/* 쌀 3박스 필수 질문 (폰트 사이즈 조정) */}
-               <div className="bg-rose-50 p-6 rounded-[32px] border-4 border-rose-500 shadow-inner font-black">
-                 <p className="text-base text-rose-900 font-black leading-tight text-center mb-5">
-                   내일 사용할 쌀이 총 3박스가 필요합니다.<br/>
-                   <span className="text-xs text-rose-600 font-bold underline mt-1 block">그보다 적을 때는 꼭 관리자에게 연락해 주세요.</span>
-                 </p>
-                 <button 
-                   onClick={() => setFormData({...formData, inventory: {...formData.inventory, riceAgreement: !formData.inventory.riceAgreement}})}
-                   className={`w-full flex items-center justify-center gap-3 py-5 rounded-[28px] font-black text-xl border-4 transition-all active:scale-95 ${formData.inventory.riceAgreement ? 'bg-rose-600 border-rose-600 text-white shadow-xl font-black' : 'bg-white border-rose-300 text-rose-400 font-black'}`}
-                 >
-                   {formData.inventory.riceAgreement ? <CheckCircle2 size={28}/> : <Circle size={28}/>}
-                   예 알겠습니다.
-                 </button>
-               </div>
-
-              <div className="grid grid-cols-1 gap-6 pt-4 border-t border-gray-100 font-black font-black">
+              <div className="grid grid-cols-1 gap-6 font-black font-black">
                 <div className="space-y-3 font-black">
-                  <p className="text-base text-gray-900 border-l-4 border-gray-900 pl-3">포장 비닐</p>
+                  <p className="text-base text-gray-900 border-l-4 border-gray-900 pl-3">뻥쌀 (최소 2박스)</p>
+                  <div className="flex gap-3">
+                    <button onClick={()=>setFormData({...formData, inventory:{...formData.inventory, riceStatus:'충분'}})} className={`flex-1 py-4 rounded-2xl border-4 transition-all font-black ${formData.inventory.riceStatus==='충분'?'bg-blue-600 border-blue-600 text-white shadow-lg':'bg-white border-gray-100 text-gray-300'}`}>충분함</button>
+                    <button onClick={()=>setFormData({...formData, inventory:{...formData.inventory, riceStatus:'부족'}})} className={`flex-1 py-4 rounded-2xl border-4 transition-all font-black ${formData.inventory.riceStatus==='부족'?'bg-red-600 border-red-600 text-white shadow-lg':'bg-white border-gray-100 text-gray-300'}`}>부족함</button>
+                  </div>
+                </div>
+                <div className="space-y-3 font-black">
+                  <p className="text-base text-gray-900 border-l-4 border-gray-900 pl-3">포장 비닐 (최소 300장)</p>
                   <div className="flex gap-3">
                     <button onClick={()=>setFormData({...formData, inventory:{...formData.inventory, bagStatus:'충분'}})} className={`flex-1 py-4 rounded-2xl border-4 transition-all font-black ${formData.inventory.bagStatus==='충분'?'bg-blue-600 border-blue-600 text-white shadow-lg':'bg-white border-gray-100 text-gray-300'}`}>충분함</button>
                     <button onClick={()=>setFormData({...formData, inventory:{...formData.inventory, bagStatus:'부족'}})} className={`flex-1 py-4 rounded-2xl border-4 transition-all font-black ${formData.inventory.bagStatus==='부족'?'bg-red-600 border-red-600 text-white shadow-lg':'bg-white border-gray-100 text-gray-300'}`}>부족함</button>
                   </div>
                 </div>
                 <div className="space-y-3 font-black">
-                  <p className="text-base text-gray-900 border-l-4 border-gray-900 pl-3 font-black">빵끈</p>
+                  <p className="text-base text-gray-900 border-l-4 border-gray-900 pl-3 font-black">빵끈 (최소 250개)</p>
                   <div className="flex gap-3 font-black">
                     <button onClick={()=>setFormData({...formData, inventory:{...formData.inventory, tieStatus:'충분'}})} className={`flex-1 py-4 rounded-2xl border-4 transition-all font-black ${formData.inventory.tieStatus==='충분'?'bg-blue-600 border-blue-600 text-white shadow-lg':'bg-white border-gray-100 text-gray-300'}`}>충분함</button>
                     <button onClick={()=>setFormData({...formData, inventory:{...formData.inventory, tieStatus:'부족'}})} className={`flex-1 py-4 rounded-2xl border-4 transition-all font-black ${formData.inventory.tieStatus==='부족'?'bg-red-600 border-red-600 text-white shadow-lg':'bg-white border-gray-100 text-gray-300'}`}>부족함</button>
